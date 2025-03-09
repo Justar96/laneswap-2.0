@@ -1,17 +1,12 @@
-from enum import Enum
+"""
+Models for heartbeat monitoring.
+"""
+
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from pydantic import BaseModel, Field
 
-
-class HeartbeatStatus(str, Enum):
-    """Enum representing possible service health statuses."""
-    HEALTHY = "healthy"
-    DEGRADED = "degraded"
-    ERROR = "error"
-    BUSY = "busy"
-    STALE = "stale"
-    UNKNOWN = "unknown"
+from ..core.types import HeartbeatStatus
 
 
 class HeartbeatEvent(BaseModel):
@@ -51,3 +46,8 @@ class MultiServiceStatus(BaseModel):
     """Model for multiple service statuses response."""
     services: Dict[str, ServiceStatus]
     summary: Dict[str, int] = Field(default_factory=dict)
+
+
+class ServiceRegistrationResponse(BaseModel):
+    """Response model for service registration."""
+    service_id: str

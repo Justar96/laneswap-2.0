@@ -2,11 +2,38 @@ from typing import Dict, Any, Optional, List
 import os
 import logging
 from functools import lru_cache
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, field_validator
+from dotenv import load_dotenv
+
+# Load environment variables from .env file if it exists
+load_dotenv()
 
 # Configure logging
 logger = logging.getLogger("laneswap")
 
+# Add this to the configuration
+MONITOR_URL = os.getenv("MONITOR_URL", "http://localhost:8080")
+
+# API configuration
+HOST = os.getenv("HOST", "0.0.0.0")
+PORT = int(os.getenv("PORT", "8000"))
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+
+# MongoDB configuration
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+MONGODB_DATABASE = os.getenv("MONGODB_DATABASE", "laneswap")
+
+# Discord webhook configuration
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
+DISCORD_WEBHOOK_USERNAME = os.getenv("DISCORD_WEBHOOK_USERNAME", "LaneSwap Monitor")
+
+# Heartbeat configuration
+HEARTBEAT_CHECK_INTERVAL = int(os.getenv("HEARTBEAT_CHECK_INTERVAL", "30"))
+HEARTBEAT_STALE_THRESHOLD = int(os.getenv("HEARTBEAT_STALE_THRESHOLD", "60"))
+
+# URL configuration for client and web monitor
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 class MongoDBSettings(BaseModel):
     """MongoDB connection settings."""
@@ -37,13 +64,23 @@ class DiscordSettings(BaseModel):
 
 class HeartbeatSettings(BaseModel):
     """Heartbeat monitoring settings."""
-    check_interval: int = Field(30, description="Interval in seconds to check for stale heartbeats")
-    stale_threshold: int = Field(60, description="Time in seconds after which a heartbeat is considered stale")
+    check_interval: int = 30  # seconds
+    stale_threshold: int = 60  # seconds
     
-    @validator("check_interval", "stale_threshold")
-    def validate_positive_int(cls, v, field):
+    @field_validator('check_interval')
+    @classmethod
+    def validate_check_interval(cls, v: int) -> int:
+        """Validate check_interval is positive."""
         if v <= 0:
-            raise ValueError(f"{field.name} must be a positive integer")
+            raise ValueError("check_interval must be positive")
+        return v
+    
+    @field_validator('stale_threshold')
+    @classmethod
+    def validate_stale_threshold(cls, v: int) -> int:
+        """Validate stale_threshold is positive."""
+        if v <= 0:
+            raise ValueError("stale_threshold must be positive")
         return v
 
 
@@ -94,8 +131,8 @@ def get_settings() -> Settings:
         )
         
     heartbeat_settings = HeartbeatSettings(
-        check_interval=int(os.getenv("HEARTBEAT_CHECK_INTERVAL", "30")),
-        stale_threshold=int(os.getenv("HEARTBEAT_STALE_THRESHOLD", "60"))
+        check_interval=parse_env_int("HEARTBEAT_CHECK_INTERVAL", 30),
+        stale_threshold=parse_env_int("HEARTBEAT_STALE_THRESHOLD", 60)
     )
     
     api_settings = APISettings(
@@ -124,7 +161,58 @@ def setup_logging(log_level: str = "INFO") -> None:
     log_level_upper = log_level.upper()
     numeric_level = getattr(logging, log_level_upper, logging.INFO)
     
+    # Configure root logger
     logging.basicConfig(
         level=numeric_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        force=True
     )
+    
+    # Set level for our logger
+    logger.setLevel(numeric_level)
+    
+    logger.debug(f"Logging configured with level: {log_level_upper}")
+
+
+def parse_env_int(name: str, default: int) -> int:
+    """
+    Parse an integer environment variable with proper error handling.
+    
+    Args:
+        name: Name of the environment variable
+        default: Default value if not found or invalid
+        
+    Returns:
+        int: The parsed value or default
+    """
+    value = os.getenv(name)
+    if value is None:
+        return default
+    
+    # Strip any comments
+    if '#' in value:
+        value = value.split('#')[0].strip()
+        
+    try:
+        return int(value)
+    except ValueError:
+        logger.warning(f"Invalid value for {name}: '{value}', using default: {default}")
+        return default
+
+# Get all configuration as a dictionary
+def get_config() -> Dict[str, Any]:
+    """Get all configuration as a dictionary."""
+    return {
+        "host": HOST,
+        "port": PORT,
+        "debug": DEBUG,
+        "cors_origins": CORS_ORIGINS,
+        "mongodb_url": MONGODB_URL,
+        "mongodb_database": MONGODB_DATABASE,
+        "discord_webhook_url": DISCORD_WEBHOOK_URL,
+        "discord_webhook_username": DISCORD_WEBHOOK_USERNAME,
+        "heartbeat_check_interval": HEARTBEAT_CHECK_INTERVAL,
+        "heartbeat_stale_threshold": HEARTBEAT_STALE_THRESHOLD,
+        "api_url": API_URL,
+        "monitor_url": MONITOR_URL,
+    }

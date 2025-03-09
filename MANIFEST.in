@@ -1,0 +1,10 @@
+include LICENSE
+include README.md
+include pyproject.toml
+recursive-include laneswap/examples/web_monitor *.html *.css *.js *.ico *.png
+recursive-include laneswap/examples *.py
+recursive-include laneswap/core *.py
+recursive-include laneswap/api *.py
+recursive-include laneswap/models *.py
+recursive-include laneswap/adapters *.py
+recursive-include laneswap/client *.py 

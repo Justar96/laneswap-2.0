@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import PyMongoError
+import asyncio
 
 from .base import StorageAdapter
 from ..models.error import ErrorLog
@@ -37,35 +38,39 @@ class MongoDBAdapter(StorageAdapter):
         self.db = None
         
     async def connect(self):
-        """Establish connection to MongoDB."""
-        if self.client is None:
+        """Establish connection to MongoDB with retry logic."""
+        if self.client:
+            logger.debug("MongoDB client already exists, reusing")
+            return True
+        
+        logger.info(f"Connecting to MongoDB: {self.connection_string}")
+        
+        max_retries = 3
+        retry_delay = 1  # seconds
+        
+        for attempt in range(1, max_retries + 1):
             try:
-                # Configure connection with explicit pool settings
+                # Add connection pooling settings
                 self.client = AsyncIOMotorClient(
                     self.connection_string,
-                    maxPoolSize=50,  # Adjust based on your application needs
-                    minPoolSize=10,
+                    maxPoolSize=10,
+                    minPoolSize=1,
                     maxIdleTimeMS=30000,
-                    connectTimeoutMS=5000,
                     serverSelectionTimeoutMS=5000
                 )
+                
+                # Test the connection
                 self.db = self.client[self.database_name]
-                
-                # Create indexes if they don't exist
-                await self.db[self.heartbeats_collection].create_index("id", unique=True)
-                
-                # Add TTL index to automatically remove old error logs (e.g., after 30 days)
-                await self.db[self.errors_collection].create_index(
-                    "timestamp", 
-                    expireAfterSeconds=30 * 24 * 60 * 60  # 30 days in seconds
-                )
-                
-                await self.db[self.errors_collection].create_index("service_id")
-                
-                logger.info(f"Connected to MongoDB: {self.database_name}")
+                await self.db.command("ping")
+                logger.info(f"MongoDB connection established (attempt {attempt})")
+                return True
             except PyMongoError as e:
-                logger.error(f"Failed to connect to MongoDB: {str(e)}")
-                raise
+                if attempt == max_retries:
+                    logger.error(f"Failed to connect to MongoDB after {max_retries} attempts: {str(e)}")
+                    raise
+                else:
+                    logger.warning(f"MongoDB connection attempt {attempt} failed: {str(e)}. Retrying in {retry_delay}s...")
+                    await asyncio.sleep(retry_delay)
                 
     async def store_heartbeat(self, service_id: str, heartbeat_data: Dict[str, Any]) -> bool:
         """

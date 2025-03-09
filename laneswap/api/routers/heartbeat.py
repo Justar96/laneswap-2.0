@@ -8,7 +8,8 @@ from ...models.heartbeat import (
     ServiceHeartbeat,
     ServiceStatus,
     MultiServiceStatus,
-    HeartbeatStatus
+    HeartbeatStatus,
+    ServiceRegistrationResponse
 )
 
 router = APIRouter()
@@ -21,33 +22,23 @@ async def get_heartbeat_manager() -> HeartbeatManager:
 
 @router.post(
     "/services",
-    response_model=Dict[str, str],
+    response_model=ServiceRegistrationResponse,
     summary="Register a new service"
 )
 async def register_service(
-    registration: ServiceRegistration,
-    manager: HeartbeatManager = Depends(get_heartbeat_manager)
+    service: ServiceRegistration,
+    manager: HeartbeatManager = Depends(get_manager)
 ):
-    """
-    Register a new service for heartbeat monitoring.
-    
-    Args:
-        registration: Service registration details
-        
-    Returns:
-        Dict with the registered service ID
-    """
+    """Register a new service for heartbeat monitoring."""
     try:
         service_id = await manager.register_service(
-            service_id=registration.service_id,
-            service_name=registration.service_name,
-            metadata=registration.metadata
+            service_name=service.service_name,
+            service_id=service.service_id,
+            metadata=service.metadata
         )
-        
         return {"service_id": service_id}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.error(f"Error registering service: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to register service: {str(e)}")
 
 
