@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laneswap Service Monitor</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Laneswap Service Monitor</h1>
+        <div class="controls">
+            <input type="text" id="api-url" value="http://localhost:8000" placeholder="API URL">
+            <button id="refresh-btn">Refresh</button>
+            <label>
+                <input type="checkbox" id="auto-refresh" checked>
+                Auto-refresh (10s)
+            </label>
+        </div>
+    </header>
+
+    <main>
+        <section class="summary-section">
+            <h2>Summary</h2>
+            <div class="summary-cards">
+                <div class="summary-card total">
+                    <h3>Total Services</h3>
+                    <p id="total-count">0</p>
+                </div>
+                <div class="summary-card healthy">
+                    <h3>Healthy</h3>
+                    <p id="healthy-count">0</p>
+                </div>
+                <div class="summary-card degraded">
+                    <h3>Degraded</h3>
+                    <p id="degraded-count">0</p>
+                </div>
+                <div class="summary-card error">
+                    <h3>Error</h3>
+                    <p id="error-count">0</p>
+                </div>
+                <div class="summary-card stale">
+                    <h3>Stale</h3>
+                    <p id="stale-count">0</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="services-section">
+            <h2>Services</h2>
+            <div id="services-list" class="services-list">
+                <div class="loading">Loading services...</div>
+            </div>
+        </section>
+
+        <section class="service-details-section hidden" id="service-details-section">
+            <div class="service-details-header">
+                <h2>Service Details: <span id="detail-service-name">Service Name</span></h2>
+                <button id="close-details-btn">Close</button>
+            </div>
+            <div class="service-info-cards">
+                <div class="service-info-card">
+                    <h3>Status</h3>
+                    <p id="detail-status">-</p>
+                </div>
+                <div class="service-info-card">
+                    <h3>Last Heartbeat</h3>
+                    <p id="detail-last-heartbeat">-</p>
+                </div>
+                <div class="service-info-card">
+                    <h3>Service ID</h3>
+                    <p id="detail-service-id">-</p>
+                </div>
+            </div>
+            <div class="service-metadata">
+                <h3>Metadata</h3>
+                <div id="detail-metadata" class="metadata-container">
+                    <p>No metadata available</p>
+                </div>
+            </div>
+            <div class="service-events">
+                <h3>Recent Events</h3>
+                <div id="detail-events" class="events-container">
+                    <p>No events available</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Laneswap Heartbeat Monitor &copy; 2024</p>
+        <p>Last updated: <span id="last-updated">Never</span></p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
