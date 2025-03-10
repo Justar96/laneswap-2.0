@@ -1,4 +1,4 @@
-# LaneSwap Heartbeat Monitoring System
+# LaneSwap
 
 A lightweight, reliable service monitoring system for distributed applications built with FastAPI and Python.
 
@@ -24,10 +24,41 @@ LaneSwap Heartbeat is a Python library that provides real-time monitoring of ser
 pip install laneswap
 ```
 
-### Start the API Server
+### Start the API Server with Web Monitor
 
 ```bash
 python -m laneswap.api.server
+```
+
+This will:
+- Start the API server on port 8000
+- Start the web monitor on port 8080
+- Open the web monitor in your default browser
+
+### Command Line Options
+
+```bash
+# Start without opening a browser
+python -m laneswap.api.server --no-browser
+
+# Start without the web monitor
+python -m laneswap.api.server --no-monitor
+
+# Specify custom ports
+python -m laneswap.api.server --port 9000 --monitor-port 9080
+```
+
+### Using the CLI
+
+```bash
+# Start the server with web monitor
+laneswap server
+
+# Start without opening a browser
+laneswap server --no-browser
+
+# Start without the web monitor
+laneswap server --no-monitor
 ```
 
 ### Start the Web Monitor

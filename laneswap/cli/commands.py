@@ -193,41 +193,22 @@ async def get_service_cmd(args):
 
 
 def start_server(args):
-    """Start the LaneSwap API server."""
-    # Set environment variables from arguments
-    os.environ["HOST"] = args.host
-    os.environ["PORT"] = str(args.port)
-    os.environ["DEBUG"] = str(args.debug).lower()
+    """Start the API server."""
+    from laneswap.api.server import start_server as start_api_server
     
-    if args.mongodb_url:
-        os.environ["MONGODB_URL"] = args.mongodb_url
-        
-    if args.discord_webhook:
-        os.environ["DISCORD_WEBHOOK_URL"] = args.discord_webhook
-    
-    # Generate and display URLs
-    from laneswap.api.main import get_server_urls
-    urls = get_server_urls(args.host, args.port)
-    
-    print("\n" + "=" * 50)
-    print("LaneSwap Server is starting...")
-    print("=" * 50)
-    
-    for base_url, endpoints in urls.items():
-        print(f"\nAccess points for {base_url}:")
-        print(f"  API Endpoint: {endpoints['api']}")
-        print(f"  API Documentation: {endpoints['docs']}")
-        print(f"  Web Monitor: {endpoints['web_monitor']}")
-    
-    print("\n" + "=" * 50)
-        
-    # Start the server
-    uvicorn.run(
-        "laneswap.api.main:app",
-        host=args.host,
-        port=args.port,
-        reload=args.debug
-    )
+    try:
+        print(f"Starting API server on {args.host}:{args.port}")
+        start_api_server(
+            host=args.host,
+            port=args.port,
+            debug=args.debug,
+            start_monitor=not args.no_monitor,
+            monitor_port=args.monitor_port,
+            open_browser=not args.no_browser
+        )
+    except Exception as e:
+        logger.error(f"Error starting API server: {str(e)}")
+        sys.exit(1)
 
 
 async def monitor_services(args):
@@ -474,13 +455,14 @@ def main():
     api_url_arg(get_parser)
     get_parser.add_argument("--id", required=True, help="Service ID")
     
-    # Start server command
-    server_parser = subparsers.add_parser("server", help="Start the LaneSwap API server")
-    server_parser.add_argument("--host", default="0.0.0.0", help="Server host")
-    server_parser.add_argument("--port", type=int, default=8000, help="Server port")
-    server_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-    server_parser.add_argument("--mongodb-url", help="MongoDB connection URL")
-    server_parser.add_argument("--discord-webhook", help="Discord webhook URL")
+    # Server command
+    server_parser = subparsers.add_parser("server", help="Start the API server")
+    server_parser.add_argument("--host", default="0.0.0.0", help="Host to bind the server to")
+    server_parser.add_argument("--port", type=int, default=8000, help="Port to run the server on")
+    server_parser.add_argument("--debug", action="store_true", help="Run in debug mode")
+    server_parser.add_argument("--no-monitor", action="store_true", help="Don't start the web monitor")
+    server_parser.add_argument("--monitor-port", type=int, default=8080, help="Port to run the web monitor on")
+    server_parser.add_argument("--no-browser", action="store_true", help="Don't open a browser window")
     
     # Monitor command
     monitor_parser = subparsers.add_parser("monitor", help="Monitor services in real-time")

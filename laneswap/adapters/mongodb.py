@@ -43,7 +43,9 @@ class MongoDBAdapter(StorageAdapter):
             logger.debug("MongoDB client already exists, reusing")
             return True
         
-        logger.info(f"Connecting to MongoDB: {self.connection_string}")
+        # Mask sensitive connection string details
+        masked_connection = self._mask_connection_string(self.connection_string)
+        logger.info(f"Connecting to MongoDB: {masked_connection}")
         
         max_retries = 3
         retry_delay = 1  # seconds
@@ -343,3 +345,24 @@ class MongoDBAdapter(StorageAdapter):
         except PyMongoError as e:
             logger.error(f"Error retrieving filtered heartbeats: {str(e)}")
             return []
+
+    def _mask_connection_string(self, connection_string: str) -> str:
+        """
+        Mask sensitive information in MongoDB connection string.
+        
+        Args:
+            connection_string: Original connection string
+            
+        Returns:
+            str: Connection string with credentials masked
+        """
+        try:
+            # Handle mongodb:// and mongodb+srv:// URLs
+            if '@' in connection_string:
+                # Split the connection string at '@' to separate credentials from host
+                prefix, rest = connection_string.split('@', 1)
+                protocol = prefix.split('://')[0] + '://'
+                return f"{protocol}****@{rest}"
+            return connection_string
+        except Exception:
+            return "mongodb://*****"
