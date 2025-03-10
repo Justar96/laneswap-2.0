@@ -446,30 +446,49 @@ function updateThemeIcon(theme) {
 /**
  * Show a toast notification
  * @param {string} message - The message to display
- * @param {string} type - The notification type ('info', 'success', 'warning', 'error')
- * @param {number} duration - How long to show the notification (ms)
+ * @param {string} type - The type of toast (success, error, warning, info)
+ * @param {number} duration - How long to show the toast in ms
  */
 function showToast(message, type = 'info', duration = 3000) {
+  const toastContainer = document.getElementById('toastContainer');
+  if (!toastContainer) return;
+  
+  // Create toast element
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
   
-  const iconMap = {
-    'info': 'info',
-    'success': 'check_circle',
-    'warning': 'warning',
-    'error': 'error'
-  };
+  // Get icon based on type
+  let icon = 'info';
+  switch (type) {
+    case 'success': icon = 'check_circle'; break;
+    case 'error': icon = 'error'; break;
+    case 'warning': icon = 'warning'; break;
+    default: icon = 'info'; break;
+  }
   
+  // Set toast content
   toast.innerHTML = `
-    <span class="material-symbols-rounded toast-icon">${iconMap[type] || 'info'}</span>
-    <span class="toast-message">${message}</span>
+    <div class="toast-header">
+      <span class="material-symbols-rounded toast-icon">${icon}</span>
+      <h6 class="toast-title">${type.charAt(0).toUpperCase() + type.slice(1)}</h6>
+      <button type="button" class="toast-close" onclick="this.parentElement.parentElement.remove()">
+        <span class="material-symbols-rounded">close</span>
+      </button>
+    </div>
+    <div class="toast-body">${message}</div>
   `;
   
-  elements.toastContainer.appendChild(toast);
+  // Add to container
+  toastContainer.appendChild(toast);
   
-  // Auto-remove toast after duration
+  // Show with animation
   setTimeout(() => {
-    toast.style.animation = 'slideOut 0.3s forwards';
+    toast.classList.add('show');
+  }, 10);
+  
+  // Auto remove after duration
+  setTimeout(() => {
+    toast.classList.remove('show');
     setTimeout(() => {
       toast.remove();
     }, 300);
@@ -584,138 +603,212 @@ function focusOnService(serviceId) {
 }
 
 /**
- * Show service details in modal
- * @param {string} serviceId - The service ID to show details for
+ * Show service details in modal with fixed timeline
+ * @param {string} serviceId - The ID of the service to show details for
  */
 function showServiceDetails(serviceId) {
   const service = state.services[serviceId];
   if (!service) return;
   
-  const modalElement = document.getElementById('serviceDetailsModal');
-  if (!modalElement) {
-    console.error('Service details modal element not found');
-    return;
-  }
-  
-  const modalBody = document.getElementById('serviceDetailsBody');
   const modalTitle = document.getElementById('serviceDetailsTitle');
+  const modalBody = document.getElementById('serviceDetailsBody');
   
-  // Update modal title
-  modalTitle.textContent = `${service.name} (${serviceId})`;
+  if (!modalTitle || !modalBody) return;
   
-  // Format metadata as JSON with syntax highlighting
-  const metadataHtml = formatMetadataHtml(service.metadata);
+  // Set modal title
+  modalTitle.textContent = service.name || service.id;
   
-  // Format heartbeat history
-  const heartbeatHistoryHtml = formatHeartbeatHistoryHtml(service.heartbeat_history);
+  // Format the service details
+  const statusClass = service.status.toLowerCase();
+  const formattedTime = formatTime(service.last_heartbeat);
   
+  // Create modal content with fixed timeline
   modalBody.innerHTML = `
-    <div class="service-detail-grid">
-      <div class="detail-section">
-        <h3 class="detail-section-title">${getTranslation('service.details') || 'Details'}</h3>
-        
-        <div class="detail-row">
-          <div class="detail-label">${getTranslation('service.id')}</div>
-          <div class="detail-value">
-            <code>${serviceId}</code>
-          </div>
-        </div>
-        
-        <div class="detail-row">
-          <div class="detail-label">${getTranslation('service.name')}</div>
-          <div class="detail-value">${service.name}</div>
-        </div>
-        
-        <div class="detail-row">
-          <div class="detail-label">${getTranslation('service.status')}</div>
-          <div class="detail-value">
-            <span class="status-chip ${service.status.toLowerCase()}">${service.status}</span>
-          </div>
-        </div>
-        
-        <div class="detail-row">
-          <div class="detail-label">${getTranslation('service.lastHeartbeat')}</div>
-          <div class="detail-value">
-            <span class="material-symbols-rounded">schedule</span>
-            ${formatDate(service.last_heartbeat)}
-          </div>
+    <div class="service-detail-grid mb-4">
+      <div class="detail-card">
+        <div class="detail-title">Service ID</div>
+        <div class="detail-value monospace">${service.id}</div>
+      </div>
+      <div class="detail-card">
+        <div class="detail-title">Status</div>
+        <div class="detail-value">
+          <span class="status-chip ${statusClass}">${service.status}</span>
         </div>
       </div>
-      
-      <div class="detail-section">
-        <h3 class="detail-section-title">${getTranslation('service.message')}</h3>
-        <p>${service.message || `<span class="no-data">${getTranslation('service.noMessage')}</span>`}</p>
-        
-        <h3 class="detail-section-title">${getTranslation('service.metadata')}</h3>
-        ${metadataHtml}
+      <div class="detail-card">
+        <div class="detail-title">Last Heartbeat</div>
+        <div class="detail-value">${formattedTime}</div>
+      </div>
+      <div class="detail-card">
+        <div class="detail-title">Message</div>
+        <div class="detail-value">${service.last_message || 'No message'}</div>
       </div>
     </div>
     
-    ${heartbeatHistoryHtml}
+    <h6 class="mb-3">Recent Events</h6>
+    <div class="timeline">
+      ${renderFixedTimeline(service.events)}
+    </div>
+    
+    <h6 class="mb-3 mt-4">Service Logs</h6>
+    <div class="service-logs">
+      ${renderServiceLogs(service.events)}
+    </div>
   `;
   
-  // Make sure Bootstrap is available
-  if (typeof bootstrap === 'undefined') {
-    console.error('Bootstrap is not loaded. Modal will not work properly.');
-    return;
+  // Show the modal
+  const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('serviceDetailsModal'));
+  modal.show();
+  
+  // Force apply styles after modal is shown
+  setTimeout(() => {
+    applyTimelineStyles();
+  }, 100);
+}
+
+/**
+ * Render timeline with forced styling
+ * @param {Array} events - Array of events to render
+ * @returns {string} HTML for the timeline
+ */
+function renderFixedTimeline(events) {
+  if (!events || events.length === 0) {
+    return '<div class="text-center py-3">No events recorded</div>';
   }
   
-  try {
-    // Show the modal using getOrCreateInstance
-    const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
-    modal.show();
-  } catch (error) {
-    console.error('Error showing service details modal:', error);
-  }
+  // Sort events by timestamp (newest first)
+  const sortedEvents = [...events].sort((a, b) => {
+    return new Date(b.timestamp) - new Date(a.timestamp);
+  });
+  
+  // Take only the last 10 events
+  const recentEvents = sortedEvents.slice(0, 10);
+  
+  return recentEvents.map(event => {
+    const statusClass = event.status.toLowerCase();
+    const time = formatTime(event.timestamp);
+    
+    return `
+      <div class="timeline-item ${statusClass}" data-status="${statusClass}">
+        <div class="timeline-dot ${statusClass}"></div>
+        <div class="timeline-time">${time}</div>
+        <div class="timeline-content">
+          <span class="timeline-badge ${statusClass}">${event.status}</span>
+          <span class="timeline-message">${event.message || 'No message'}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 /**
- * Format service metadata as HTML
- * @param {Object} metadata - Service metadata
- * @returns {string} HTML representation of metadata
+ * Force apply timeline styles after modal is shown
  */
-function formatMetadataHtml(metadata) {
-  if (!metadata || Object.keys(metadata).length === 0) {
-    return `<p class="no-data">${getTranslation('service.noMetadata')}</p>`;
-  }
-  return `<pre class="metadata-json">${JSON.stringify(metadata, null, 2)}</pre>`;
+function applyTimelineStyles() {
+  // Get all timeline items
+  const timelineItems = document.querySelectorAll('.timeline-item');
+  
+  // Apply styles directly to each item
+  timelineItems.forEach(item => {
+    const status = item.dataset.status;
+    if (!status) return;
+    
+    // Force background color based on status
+    switch (status) {
+      case 'healthy':
+        item.style.backgroundColor = 'rgba(var(--color-success-rgb), 0.05)';
+        break;
+      case 'warning':
+        item.style.backgroundColor = 'rgba(var(--color-warning-rgb), 0.05)';
+        break;
+      case 'error':
+        item.style.backgroundColor = 'rgba(var(--color-error-rgb), 0.05)';
+        break;
+      case 'stale':
+      case 'unknown':
+      case 'busy':
+        item.style.backgroundColor = 'rgba(var(--color-muted-rgb), 0.05)';
+        break;
+    }
+    
+    // Ensure padding and border radius
+    item.style.padding = '12px';
+    item.style.borderRadius = '4px';
+  });
+  
+  // Apply styles to badges
+  const badges = document.querySelectorAll('.timeline-badge');
+  badges.forEach(badge => {
+    const status = badge.classList.contains('healthy') ? 'healthy' : 
+                  badge.classList.contains('warning') ? 'warning' :
+                  badge.classList.contains('error') ? 'error' : 'stale';
+    
+    // Force badge styling
+    badge.style.fontWeight = '600';
+    badge.style.padding = '2px 6px';
+    badge.style.borderRadius = '4px';
+    badge.style.display = 'inline-block';
+    badge.style.minWidth = '70px';
+    badge.style.textAlign = 'center';
+    badge.style.textTransform = 'uppercase';
+    badge.style.fontSize = '0.7rem';
+    badge.style.marginRight = '8px';
+    
+    // Apply status-specific styles
+    switch (status) {
+      case 'healthy':
+        badge.style.backgroundColor = 'var(--color-success-bg)';
+        badge.style.color = 'var(--color-success)';
+        break;
+      case 'warning':
+        badge.style.backgroundColor = 'var(--color-warning-bg)';
+        badge.style.color = 'var(--color-warning)';
+        break;
+      case 'error':
+        badge.style.backgroundColor = 'var(--color-error-bg)';
+        badge.style.color = 'var(--color-error)';
+        break;
+      default:
+        badge.style.backgroundColor = 'var(--color-muted-bg)';
+        badge.style.color = 'var(--color-muted)';
+    }
+  });
 }
 
 /**
- * Format heartbeat history as HTML
- * @param {Array} history - Heartbeat history array
- * @returns {string} HTML representation of heartbeat history
+ * Render service logs with color coding
+ * @param {Array} events - Array of events to render as logs
+ * @returns {string} HTML for the logs
  */
-function formatHeartbeatHistoryHtml(history) {
-  if (!history || history.length === 0) {
-    return '';
+function renderServiceLogs(events) {
+  if (!events || events.length === 0) {
+    return '<div class="text-center py-3" data-i18n="modal.noLogs">No logs available</div>';
   }
+  
+  // Sort events by timestamp (newest first)
+  const sortedEvents = [...events].sort((a, b) => {
+    return new Date(b.timestamp) - new Date(a.timestamp);
+  });
+  
+  // Take only the last 20 events
+  const recentEvents = sortedEvents.slice(0, 20);
+  
+  const logEntries = recentEvents.map(event => {
+    const statusClass = event.status.toLowerCase();
+    const formattedDate = new Date(event.timestamp).toISOString().replace('T', ' ').substring(0, 19);
+    
+    return `
+      <div class="log-entry ${statusClass}">
+        <span class="log-time">[${formattedDate}]</span>
+        <span class="log-status ${statusClass}">${event.status}</span>
+        <span class="log-message">${event.message || 'No message'}</span>
+      </div>
+    `;
+  }).join('');
   
   return `
-    <div class="detail-section">
-      <h3 class="detail-section-title">${getTranslation('service.heartbeatHistory') || 'Heartbeat History'}</h3>
-      <div class="service-table-container">
-        <table class="service-table">
-          <thead>
-            <tr>
-              <th>${getTranslation('service.timestamp') || 'Timestamp'}</th>
-              <th>${getTranslation('service.status')}</th>
-              <th>${getTranslation('service.message')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${history.map(hb => `
-              <tr>
-                <td>${formatDate(hb.timestamp)}</td>
-                <td>
-                  <span class="status-chip ${hb.status.toLowerCase()}">${hb.status}</span>
-                </td>
-                <td>${hb.message || '-'}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
+    <div class="log-container">
+      ${logEntries}
     </div>
   `;
 }
@@ -1078,6 +1171,56 @@ function initializeLanguage() {
     console.error('Error initializing language:', error);
     // Set fallback to English
     state.currentLanguage = 'en';
+  }
+}
+
+/**
+ * Format a timestamp in a human-readable way
+ * @param {string|Date} timestamp - The timestamp to format
+ * @returns {string} Formatted time string
+ */
+function formatTime(timestamp) {
+  if (!timestamp) return 'Never';
+  
+  try {
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return 'Invalid date';
+    
+    // Get date format preference
+    const format = localStorage.getItem('laneswap-date-format') || 'relative';
+    
+    if (format === 'relative') {
+      return getRelativeTimeString(date);
+    } else {
+      return date.toLocaleString();
+    }
+  } catch (error) {
+    console.error('Error formatting time:', error);
+    return 'Error';
+  }
+}
+
+/**
+ * Get a relative time string (e.g., "2 hours ago")
+ * @param {Date} date - The date to format
+ * @returns {string} Relative time string
+ */
+function getRelativeTimeString(date) {
+  const now = new Date();
+  const diffMs = now - date;
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+  
+  if (diffSec < 60) {
+    return `${diffSec} second${diffSec !== 1 ? 's' : ''} ago`;
+  } else if (diffMin < 60) {
+    return `${diffMin} minute${diffMin !== 1 ? 's' : ''} ago`;
+  } else if (diffHour < 24) {
+    return `${diffHour} hour${diffHour !== 1 ? 's' : ''} ago`;
+  } else {
+    return `${diffDay} day${diffDay !== 1 ? 's' : ''} ago`;
   }
 }
 
