@@ -1,9 +1,9 @@
 // Internationalization support
 const translations = {
     en: {
-        title: "LaneSwap Monitor",
+        title: "laneswap monitor",
         nav: {
-            title: "LaneSwap Monitor",
+            title: "laneswap monitor",
             dashboard: "Dashboard",
             settings: "Settings",
             help: "Help"
@@ -97,12 +97,12 @@ const translations = {
         error: "Error loading services",
         noServices: "No services found",
         lastUpdated: "Last updated: Never",
-        poweredBy: "Powered by"
+        poweredBy: "powered by"
     },
     th: {
-        title: "ระบบติดตาม LaneSwap",
+        title: "ระบบติดตาม laneswap",
         nav: {
-            title: "ระบบติดตาม LaneSwap",
+            title: "ระบบติดตาม laneswap",
             dashboard: "แดชบอร์ด",
             settings: "ตั้งค่า",
             help: "ช่วยเหลือ"

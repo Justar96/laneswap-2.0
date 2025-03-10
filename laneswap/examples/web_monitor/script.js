@@ -64,6 +64,9 @@ const storeValue = (key, value) => {
  * Initialize the application
  */
 function init() {
+  // Ensure required DOM elements exist
+  ensureRequiredElements();
+  
   // Load saved settings from localStorage
   elements.apiUrlInput.value = getStoredValue('laneswap-api-url', '');
   elements.refreshIntervalSelect.value = getStoredValue('laneswap-refresh-interval', '0');
@@ -107,6 +110,12 @@ function init() {
   document.addEventListener('DOMContentLoaded', () => {
     initializeLanguage();
   });
+  
+  // Initialize theme
+  initializeTheme();
+  
+  // Add enhanced monitoring features
+  addEnhancedMonitoring();
 }
 
 /**
@@ -204,6 +213,9 @@ function setupEventListeners() {
   // Sidebar toggle
   elements.sidebarToggle.addEventListener('click', toggleSidebar);
   document.querySelector('.sidebar-overlay')?.addEventListener('click', toggleSidebar);
+  
+  // Theme toggle
+  setupThemeToggle();
 }
 
 /**
@@ -274,18 +286,81 @@ function toggleSidebar() {
   }
 
 /**
- * Toggle between light and dark theme
+ * Toggle between light and dark themes
  */
 function toggleTheme() {
-  const currentTheme = elements.body.getAttribute('data-theme') || 'dark';
-  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  // Get current theme
+  const currentTheme = document.body.getAttribute('data-theme') || 'light';
   
+  // Toggle to the opposite theme
+  const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+  
+  // Apply the new theme
   applyTheme(newTheme);
-  storeValue('laneswap-theme', newTheme);
-  elements.themeSelect.value = newTheme;
   
-  // Show toast notification
-  showToast(`${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)} mode activated`, 'success');
+  // Update the theme select dropdown if it exists
+  if (elements.themeSelect) {
+    elements.themeSelect.value = newTheme;
+  }
+  
+  // Save the preference
+  storeValue('laneswap-theme', newTheme);
+  
+  // Show feedback
+  showToast(`Theme changed to ${newTheme} mode`, 'success');
+}
+
+/**
+ * Apply a specific theme to the application
+ * @param {string} theme - The theme to apply ('light' or 'dark')
+ */
+function applyTheme(theme) {
+  // Validate theme
+  const validTheme = ['light', 'dark'].includes(theme) ? theme : 'dark';
+  
+  // Apply to body
+  document.body.setAttribute('data-theme', validTheme);
+  
+  // Apply to root element for CSS variables
+  document.documentElement.setAttribute('data-theme', validTheme);
+  
+  // Update theme toggle button icon
+  const themeIcon = document.querySelector('.theme-toggle .material-symbols-rounded');
+  if (themeIcon) {
+    themeIcon.textContent = validTheme === 'dark' ? 'light_mode' : 'dark_mode';
+  }
+  
+  // Update any other theme-specific elements
+  const appContainer = document.querySelector('.app-container');
+  if (appContainer) {
+    appContainer.classList.toggle('theme-dark', validTheme === 'dark');
+    appContainer.classList.toggle('theme-light', validTheme === 'light');
+  }
+  
+  // Update meta theme-color for mobile browsers
+  const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+  if (metaThemeColor) {
+    metaThemeColor.setAttribute('content', 
+      validTheme === 'dark' ? '#1a1a1a' : '#ffffff');
+  }
+}
+
+/**
+ * Set up event listeners for the theme toggle button
+ */
+function setupThemeToggle() {
+  const themeToggleBtn = document.querySelector('.theme-toggle');
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', toggleTheme);
+  }
+  
+  // Also set up the theme select dropdown if it exists
+  if (elements.themeSelect) {
+    elements.themeSelect.addEventListener('change', (e) => {
+      applyTheme(e.target.value);
+      storeValue('laneswap-theme', e.target.value);
+    });
+  }
 }
 
 /**
@@ -327,18 +402,37 @@ function setViewMode(mode) {
 }
 
 /**
- * Update the view mode UI
+ * Update the view mode (grid or table)
  */
 function updateViewMode() {
+  // Ensure the services container exists
+  ensureRequiredElements();
+  
+  if (!elements.servicesList) {
+    console.error('Services container element still not found after attempting to create it');
+    return;
+  }
+  
+  // Update UI to reflect current view mode
   if (state.viewMode === 'grid') {
     elements.viewGridBtn.classList.add('active');
     elements.viewTableBtn.classList.remove('active');
-    elements.servicesList.classList.remove('view-table');
+    elements.servicesList.classList.add('grid-view');
+    elements.servicesList.classList.remove('table-view');
   } else {
-    elements.viewTableBtn.classList.add('active');
     elements.viewGridBtn.classList.remove('active');
-    elements.servicesList.classList.add('view-table');
+    elements.viewTableBtn.classList.add('active');
+    elements.servicesList.classList.remove('grid-view');
+    elements.servicesList.classList.add('table-view');
   }
+  
+  // Re-render services if we have any
+  if (Object.keys(state.services).length > 0) {
+    renderServices();
+  }
+  
+  // Store preference
+  storeValue('laneswap-view-mode', state.viewMode);
 }
 
 /**
@@ -389,59 +483,6 @@ function saveSettings() {
   showToast('Settings saved successfully', 'success');
 }
 
-/**
- * Apply theme to the UI
- * @param {string} theme - The theme to apply ('light', 'dark', or 'system')
- */
-function applyTheme(theme) {
-  if (theme === 'system') {
-    applySystemTheme();
-  } else {
-    applySpecificTheme(theme);
-  }
-}
-
-/**
- * Apply system-preferred theme
- */
-function applySystemTheme() {
-  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const theme = prefersDark ? 'dark' : 'light';
-  
-  elements.body.setAttribute('data-theme', theme);
-  updateThemeIcon(theme);
-  
-  // Listen for changes in system preference
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-    if (elements.themeSelect.value === 'system') {
-      const newTheme = e.matches ? 'dark' : 'light';
-      elements.body.setAttribute('data-theme', newTheme);
-      updateThemeIcon(newTheme);
-    }
-  });
-}
-
-/**
- * Apply a specific theme
- * @param {string} theme - The theme to apply ('light' or 'dark')
- */
-function applySpecificTheme(theme) {
-  elements.body.setAttribute('data-theme', theme);
-  updateThemeIcon(theme);
-}
-
-/**
- * Update the theme toggle icon
- * @param {string} theme - The current theme
- */
-function updateThemeIcon(theme) {
-  if (elements.themeToggleBtn) {
-    elements.themeToggleBtn.innerHTML = theme === 'dark' 
-      ? '<span class="material-symbols-rounded">light_mode</span>' 
-      : '<span class="material-symbols-rounded">dark_mode</span>';
-  }
-}
-
 // ===== NOTIFICATIONS =====
 /**
  * Show a toast notification
@@ -457,42 +498,86 @@ function showToast(message, type = 'info', duration = 3000) {
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
   
-  // Get icon based on type
+  // Get appropriate icon based on type
   let icon = 'info';
   switch (type) {
     case 'success': icon = 'check_circle'; break;
     case 'error': icon = 'error'; break;
     case 'warning': icon = 'warning'; break;
-    default: icon = 'info'; break;
   }
   
   // Set toast content
   toast.innerHTML = `
     <div class="toast-header">
-      <span class="material-symbols-rounded toast-icon">${icon}</span>
-      <h6 class="toast-title">${type.charAt(0).toUpperCase() + type.slice(1)}</h6>
-      <button type="button" class="toast-close" onclick="this.parentElement.parentElement.remove()">
+      <span class="toast-icon material-symbols-rounded">${icon}</span>
+      <h5 class="toast-title">${type.charAt(0).toUpperCase() + type.slice(1)}</h5>
+      <button class="toast-close" onclick="this.parentElement.parentElement.remove()">
         <span class="material-symbols-rounded">close</span>
       </button>
     </div>
     <div class="toast-body">${message}</div>
   `;
   
-  // Add to container
+  // Add toast to container
   toastContainer.appendChild(toast);
   
-  // Show with animation
+  // Trigger animation
   setTimeout(() => {
     toast.classList.add('show');
   }, 10);
   
-  // Auto remove after duration
-  setTimeout(() => {
-    toast.classList.remove('show');
+  // Auto-remove after duration
+  if (duration > 0) {
     setTimeout(() => {
-      toast.remove();
-    }, 300);
-  }, duration);
+      toast.classList.remove('show');
+      setTimeout(() => {
+        toast.remove();
+      }, 300);
+    }, duration);
+  }
+}
+
+/**
+ * Add loading indicators to buttons
+ */
+function setButtonLoading(button, isLoading) {
+  if (!button) return;
+  
+  if (isLoading) {
+    const originalText = button.innerHTML;
+    button.setAttribute('data-original-text', originalText);
+    button.innerHTML = `
+      <span class="loading-indicator"></span>
+      <span class="ms-2">Loading...</span>
+    `;
+    button.disabled = true;
+  } else {
+    const originalText = button.getAttribute('data-original-text');
+    if (originalText) {
+      button.innerHTML = originalText;
+    }
+    button.disabled = false;
+  }
+}
+
+/**
+ * Add tooltips to elements
+ */
+function initializeTooltips() {
+  const tooltipElements = document.querySelectorAll('[data-tooltip]');
+  
+  tooltipElements.forEach(element => {
+    const tooltipText = element.getAttribute('data-tooltip');
+    
+    // Create tooltip container
+    const tooltip = document.createElement('span');
+    tooltip.className = 'tooltip-text';
+    tooltip.textContent = tooltipText;
+    
+    // Add tooltip to element
+    element.classList.add('tooltip');
+    element.appendChild(tooltip);
+  });
 }
 
 // ===== DATE FORMATTING =====
@@ -603,7 +688,7 @@ function focusOnService(serviceId) {
 }
 
 /**
- * Show service details in modal with fixed timeline
+ * Show service details in modal
  * @param {string} serviceId - The ID of the service to show details for
  */
 function showServiceDetails(serviceId) {
@@ -622,7 +707,7 @@ function showServiceDetails(serviceId) {
   const statusClass = service.status.toLowerCase();
   const formattedTime = formatTime(service.last_heartbeat);
   
-  // Create modal content with fixed timeline
+  // Create modal content
   modalBody.innerHTML = `
     <div class="service-detail-grid mb-4">
       <div class="detail-card">
@@ -647,7 +732,7 @@ function showServiceDetails(serviceId) {
     
     <h6 class="mb-3">Recent Events</h6>
     <div class="timeline">
-      ${renderFixedTimeline(service.events)}
+      ${renderSimpleTimeline(service.events)}
     </div>
     
     <h6 class="mb-3 mt-4">Service Logs</h6>
@@ -659,19 +744,14 @@ function showServiceDetails(serviceId) {
   // Show the modal
   const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('serviceDetailsModal'));
   modal.show();
-  
-  // Force apply styles after modal is shown
-  setTimeout(() => {
-    applyTimelineStyles();
-  }, 100);
 }
 
 /**
- * Render timeline with forced styling
+ * Render a simple timeline with proper styling
  * @param {Array} events - Array of events to render
  * @returns {string} HTML for the timeline
  */
-function renderFixedTimeline(events) {
+function renderSimpleTimeline(events) {
   if (!events || events.length === 0) {
     return '<div class="text-center py-3">No events recorded</div>';
   }
@@ -689,11 +769,11 @@ function renderFixedTimeline(events) {
     const time = formatTime(event.timestamp);
     
     return `
-      <div class="timeline-item ${statusClass}" data-status="${statusClass}">
+      <div class="timeline-item ${statusClass}">
         <div class="timeline-dot ${statusClass}"></div>
         <div class="timeline-time">${time}</div>
         <div class="timeline-content">
-          <span class="timeline-badge ${statusClass}">${event.status}</span>
+          <span class="timeline-status ${statusClass}">${event.status}</span>
           <span class="timeline-message">${event.message || 'No message'}</span>
         </div>
       </div>
@@ -702,115 +782,188 @@ function renderFixedTimeline(events) {
 }
 
 /**
- * Force apply timeline styles after modal is shown
- */
-function applyTimelineStyles() {
-  // Get all timeline items
-  const timelineItems = document.querySelectorAll('.timeline-item');
-  
-  // Apply styles directly to each item
-  timelineItems.forEach(item => {
-    const status = item.dataset.status;
-    if (!status) return;
-    
-    // Force background color based on status
-    switch (status) {
-      case 'healthy':
-        item.style.backgroundColor = 'rgba(var(--color-success-rgb), 0.05)';
-        break;
-      case 'warning':
-        item.style.backgroundColor = 'rgba(var(--color-warning-rgb), 0.05)';
-        break;
-      case 'error':
-        item.style.backgroundColor = 'rgba(var(--color-error-rgb), 0.05)';
-        break;
-      case 'stale':
-      case 'unknown':
-      case 'busy':
-        item.style.backgroundColor = 'rgba(var(--color-muted-rgb), 0.05)';
-        break;
-    }
-    
-    // Ensure padding and border radius
-    item.style.padding = '12px';
-    item.style.borderRadius = '4px';
-  });
-  
-  // Apply styles to badges
-  const badges = document.querySelectorAll('.timeline-badge');
-  badges.forEach(badge => {
-    const status = badge.classList.contains('healthy') ? 'healthy' : 
-                  badge.classList.contains('warning') ? 'warning' :
-                  badge.classList.contains('error') ? 'error' : 'stale';
-    
-    // Force badge styling
-    badge.style.fontWeight = '600';
-    badge.style.padding = '2px 6px';
-    badge.style.borderRadius = '4px';
-    badge.style.display = 'inline-block';
-    badge.style.minWidth = '70px';
-    badge.style.textAlign = 'center';
-    badge.style.textTransform = 'uppercase';
-    badge.style.fontSize = '0.7rem';
-    badge.style.marginRight = '8px';
-    
-    // Apply status-specific styles
-    switch (status) {
-      case 'healthy':
-        badge.style.backgroundColor = 'var(--color-success-bg)';
-        badge.style.color = 'var(--color-success)';
-        break;
-      case 'warning':
-        badge.style.backgroundColor = 'var(--color-warning-bg)';
-        badge.style.color = 'var(--color-warning)';
-        break;
-      case 'error':
-        badge.style.backgroundColor = 'var(--color-error-bg)';
-        badge.style.color = 'var(--color-error)';
-        break;
-      default:
-        badge.style.backgroundColor = 'var(--color-muted-bg)';
-        badge.style.color = 'var(--color-muted)';
-    }
-  });
-}
-
-/**
- * Render service logs with color coding
- * @param {Array} events - Array of events to render as logs
- * @returns {string} HTML for the logs
+ * Render service logs with focus on errors and diagnostics
  */
 function renderServiceLogs(events) {
   if (!events || events.length === 0) {
-    return '<div class="text-center py-3" data-i18n="modal.noLogs">No logs available</div>';
+    return '<div class="text-center py-3">No logs available</div>';
   }
   
-  // Sort events by timestamp (newest first)
-  const sortedEvents = [...events].sort((a, b) => {
-    return new Date(b.timestamp) - new Date(a.timestamp);
+  // Sort and filter error events
+  const sortedEvents = [...events].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  const errorEvents = sortedEvents.filter(event => 
+    event.status.toLowerCase() === 'error' || 
+    event.message?.toLowerCase().includes('error') ||
+    event.message?.toLowerCase().includes('exception') ||
+    event.message?.toLowerCase().includes('fail')
+  );
+  
+  // If no errors, show healthy status
+  if (errorEvents.length === 0) {
+    return `
+      <div class="logs-container">
+        <div class="log-summary healthy">
+          <span class="material-symbols-rounded">check_circle</span>
+          <div>
+            <h6>System Healthy</h6>
+            <p>No errors detected in the last ${sortedEvents.length} events</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  
+  // Group errors by type
+  const errorTypes = {};
+  errorEvents.forEach(event => {
+    let errorType = categorizeError(event.message);
+    if (!errorTypes[errorType]) {
+      errorTypes[errorType] = [];
+    }
+    errorTypes[errorType].push(event);
   });
   
-  // Take only the last 20 events
-  const recentEvents = sortedEvents.slice(0, 20);
+  // Generate error overview
+  const overview = generateErrorOverview(errorTypes, errorEvents);
   
-  const logEntries = recentEvents.map(event => {
-    const statusClass = event.status.toLowerCase();
-    const formattedDate = new Date(event.timestamp).toISOString().replace('T', ' ').substring(0, 19);
+  // Generate detailed error groups
+  const errorGroups = Object.entries(errorTypes).map(([errorType, events]) => {
+    const count = events.length;
+    const latestEvent = events[0];
+    const time = new Date(latestEvent.timestamp).toLocaleTimeString();
+    const groupId = `error-group-${btoa(errorType).replace(/[^a-zA-Z0-9]/g, '')}`;
     
     return `
-      <div class="log-entry ${statusClass}">
-        <span class="log-time">[${formattedDate}]</span>
-        <span class="log-status ${statusClass}">${event.status}</span>
-        <span class="log-message">${event.message || 'No message'}</span>
+      <div class="error-group">
+        <div class="error-group-header" onclick="toggleErrorGroup('${groupId}')">
+          ${renderErrorGroupHeader(errorType, count, time)}
+        </div>
+        <div id="${groupId}" class="error-group-content" style="display: none;">
+          ${events.map(renderErrorDetail).join('')}
+        </div>
       </div>
     `;
   }).join('');
-  
+
   return `
-    <div class="log-container">
-      ${logEntries}
+    <div class="logs-container error-logs-container">
+      ${overview}
+      <div class="error-groups">
+        ${errorGroups}
+      </div>
     </div>
   `;
+}
+
+/**
+ * Generate error overview section
+ */
+function generateErrorOverview(errorTypes, allErrors) {
+  const totalErrors = allErrors.length;
+  const uniqueTypes = Object.keys(errorTypes).length;
+  const latestError = allErrors[0];
+  const oldestError = allErrors[allErrors.length - 1];
+  const timeSpan = Math.round((new Date(latestError.timestamp) - new Date(oldestError.timestamp)) / 1000 / 60);
+  
+  // Calculate frequency
+  const errorsPerMinute = (totalErrors / timeSpan).toFixed(2);
+  
+  // Find most frequent error type
+  let mostFrequentType = '';
+  let maxCount = 0;
+  Object.entries(errorTypes).forEach(([type, events]) => {
+    if (events.length > maxCount) {
+      maxCount = events.length;
+      mostFrequentType = type;
+    }
+  });
+
+  return `
+    <div class="error-overview">
+      <div class="overview-header">
+        <span class="material-symbols-rounded">warning</span>
+        <h6>Error Overview</h6>
+      </div>
+      <div class="overview-stats">
+        <div class="stat-item">
+          <div class="stat-value">${totalErrors}</div>
+          <div class="stat-label">Total Errors</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">${uniqueTypes}</div>
+          <div class="stat-label">Error Types</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">${errorsPerMinute}</div>
+          <div class="stat-label">Errors/min</div>
+        </div>
+      </div>
+      <div class="overview-details">
+        <div class="detail-item">
+          <span class="material-symbols-rounded">error</span>
+          <span>Most frequent: ${mostFrequentType} (${maxCount}x)</span>
+        </div>
+        <div class="detail-item">
+          <span class="material-symbols-rounded">schedule</span>
+          <span>Latest: ${new Date(latestError.timestamp).toLocaleTimeString()}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Toggle visibility of error group content
+ * @param {string} groupId - ID of the error group to toggle
+ */
+function toggleErrorGroup(groupId) {
+  const content = document.getElementById(groupId);
+  const header = content.previousElementSibling;
+  const icon = header.querySelector('.material-symbols-rounded');
+  
+  if (content.style.display === 'none') {
+    content.style.display = 'block';
+    header.classList.add('expanded');
+  } else {
+    content.style.display = 'none';
+    header.classList.remove('expanded');
+  }
+}
+
+/**
+ * Render error group header
+ */
+function renderErrorGroupHeader(errorType, count, latestTime) {
+  return `
+    <div class="error-type">
+      <span class="material-symbols-rounded">error</span>
+      <span>${errorType}</span>
+    </div>
+    <div class="error-meta">
+      <span class="error-time">${latestTime}</span>
+      <span class="error-count">${count}</span>
+    </div>
+  `;
+}
+
+/**
+ * Toggle visibility of error stack trace
+ * @param {HTMLElement} element - The header element that was clicked
+ */
+function toggleErrorStack(element) {
+  const container = element.closest('.error-stack-container');
+  const stack = container.querySelector('.error-stack');
+  const icon = element.querySelector('.material-symbols-rounded');
+  
+  if (stack.style.display === 'none' || !stack.style.display) {
+    stack.style.display = 'block';
+    element.classList.add('expanded');
+    icon.textContent = 'expand_less';
+  } else {
+    stack.style.display = 'none';
+    element.classList.remove('expanded');
+    icon.textContent = 'code';
+  }
 }
 
 // ===== DATA FETCHING =====
@@ -1224,5 +1377,846 @@ function getRelativeTimeString(date) {
   }
 }
 
+/**
+ * Render the footer with GitHub link
+ */
+function renderFooter() {
+  const footer = document.querySelector('.footer');
+  if (!footer) return;
+  
+  const lastUpdatedTime = new Date().toLocaleTimeString();
+  
+  footer.innerHTML = `
+    <div class="footer-left">
+      <span>Last updated: ${lastUpdatedTime}</span>
+    </div>
+    <a href="https://github.com/yourusername/laneswap" target="_blank" class="github-link">
+      <span class="material-symbols-rounded github-icon">code</span>
+      <span>LaneSwap</span>
+    </a>
+  `;
+}
+
+/**
+ * Update the header to include refresh button
+ */
+function updateHeader() {
+  const header = document.querySelector('.header');
+  if (!header) return;
+  
+  // Create header actions container if it doesn't exist
+  let headerActions = header.querySelector('.header-actions');
+  if (!headerActions) {
+    headerActions = document.createElement('div');
+    headerActions.className = 'header-actions';
+    header.appendChild(headerActions);
+  }
+  
+  // Add refresh button to header actions
+  headerActions.innerHTML = `
+    <button id="refreshBtn" class="refresh-button" title="Refresh data">
+      <span class="material-symbols-rounded">refresh</span>
+    </button>
+    ${headerActions.innerHTML}
+  `;
+  
+  // Update elements reference
+  elements.refreshBtn = document.getElementById('refreshBtn');
+  
+  // Add event listener to refresh button
+  if (elements.refreshBtn) {
+    elements.refreshBtn.addEventListener('click', () => {
+      fetchServices();
+    });
+  }
+}
+
+/**
+ * Update last updated time in footer
+ */
+function updateLastUpdatedTime() {
+  const lastUpdatedTime = new Date().toLocaleTimeString();
+  const footerLeft = document.querySelector('.footer-left');
+  
+  if (footerLeft) {
+    footerLeft.innerHTML = `<span>Last updated: ${lastUpdatedTime}</span>`;
+  }
+}
+
+/**
+ * Categorize error message into a specific type
+ * @param {string} message - The error message to categorize
+ * @returns {string} The categorized error type
+ */
+function categorizeError(message) {
+  if (!message) return 'Unknown Error';
+  
+  const messageLower = message.toLowerCase();
+  
+  // Common error patterns
+  const errorMatch = message.match(/Error: ([^:]+)/) || 
+                    message.match(/Exception: ([^:]+)/) ||
+                    message.match(/^([^:]+Error)/);
+  
+  if (errorMatch && errorMatch[1]) {
+    return errorMatch[1].trim();
+  }
+  
+  // Check for common error keywords
+  if (messageLower.includes('timeout')) {
+    return 'Timeout Error';
+  }
+  if (messageLower.includes('connection')) {
+    return 'Connection Error';
+  }
+  if (messageLower.includes('memory')) {
+    return 'Memory Error';
+  }
+  if (messageLower.includes('authentication') || messageLower.includes('auth')) {
+    return 'Authentication Error';
+  }
+  if (messageLower.includes('permission') || messageLower.includes('access')) {
+    return 'Permission Error';
+  }
+  if (messageLower.includes('not found') || messageLower.includes('404')) {
+    return 'Not Found Error';
+  }
+  if (messageLower.includes('validation')) {
+    return 'Validation Error';
+  }
+  if (messageLower.includes('database') || messageLower.includes('db')) {
+    return 'Database Error';
+  }
+  
+  // If no specific pattern matches, use first part of message
+  return message.substring(0, 30) + (message.length > 30 ? '...' : '');
+}
+
+/**
+ * Render an individual error detail
+ * @param {Object} event - The error event to render
+ * @returns {string} HTML for the error detail
+ */
+function renderErrorDetail(event) {
+  return `
+    <div class="error-details">
+      <div class="error-time">Time: ${new Date(event.timestamp).toLocaleTimeString()}</div>
+      <div class="error-message">${event.message}</div>
+      ${event.error_details ? `
+        <div class="error-stack-container">
+          <div class="error-stack-header" onclick="event.stopPropagation(); toggleErrorStack(this)">
+            <span class="material-symbols-rounded">code</span>
+            <span>Stack Trace</span>
+          </div>
+          <pre class="error-stack">${event.error_details}</pre>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+/**
+ * Initialize theme from saved preference
+ */
+function initializeTheme() {
+  // Get saved theme preference or default to system preference
+  const savedTheme = localStorage.getItem('laneswap-theme');
+  
+  if (savedTheme) {
+    applyTheme(savedTheme);
+  } else {
+    // Check system preference
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    applyTheme(prefersDark ? 'dark' : 'light');
+  }
+  
+  // Update theme toggle button
+  updateThemeToggleButton();
+}
+
+/**
+ * Update theme toggle button appearance
+ */
+function updateThemeToggleButton() {
+  const themeToggleBtn = document.querySelector('.theme-toggle');
+  if (!themeToggleBtn) return;
+  
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+  const icon = themeToggleBtn.querySelector('.material-symbols-rounded');
+  
+  if (icon) {
+    icon.textContent = currentTheme === 'dark' ? 'light_mode' : 'dark_mode';
+  }
+}
+
+// Call this function during initialization
+document.addEventListener('DOMContentLoaded', initializeTheme);
+
 // Initialize the app when the DOM is loaded
 document.addEventListener('DOMContentLoaded', init);
+
+/**
+ * Render service card for grid view
+ * @param {Object} service - Service data
+ * @returns {string} HTML for the service card
+ */
+function renderServiceCard(service) {
+  const status = service.status?.toLowerCase() || 'unknown';
+  const statusCode = service.status_code || '';
+  const lastUpdated = formatTimestamp(service.last_updated);
+  
+  return `
+    <div class="service-card" data-service-id="${service.id}" data-status="${status}">
+      <div class="service-card-header">
+        <h3 class="service-name">${service.name}</h3>
+        ${renderStatusSummary(service)}
+      </div>
+      <div class="service-card-body">
+        <div class="service-meta">
+          <div class="meta-item">
+            <span class="meta-label">Host:</span>
+            <span class="meta-value">${service.host || 'N/A'}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Port:</span>
+            <span class="meta-value">${service.port || 'N/A'}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Updated:</span>
+            <span class="meta-value">${lastUpdated}</span>
+          </div>
+        </div>
+      </div>
+      <div class="service-card-footer">
+        <button class="btn btn-sm btn-primary view-details-btn" onclick="showServiceDetails('${service.id}')">
+          <span class="material-symbols-rounded">visibility</span>
+          <span>View Details</span>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Render service row for table view
+ * @param {Object} service - Service data
+ * @returns {string} HTML for the service row
+ */
+function renderServiceRow(service) {
+  const status = service.status?.toLowerCase() || 'unknown';
+  const lastUpdated = formatTimestamp(service.last_updated);
+  
+  return `
+    <tr class="service-row" data-service-id="${service.id}" data-status="${status}">
+      <td class="service-name-cell">
+        <div class="service-name-container">
+          <span class="service-name">${service.name}</span>
+        </div>
+      </td>
+      <td class="service-status-cell">
+        ${renderStatusSummary(service)}
+      </td>
+      <td class="service-host-cell">${service.host || 'N/A'}</td>
+      <td class="service-port-cell">${service.port || 'N/A'}</td>
+      <td class="service-updated-cell">${lastUpdated}</td>
+      <td class="service-actions-cell">
+        <button class="btn btn-sm btn-primary view-details-btn" onclick="showServiceDetails('${service.id}')">
+          <span class="material-symbols-rounded">visibility</span>
+        </button>
+      </td>
+    </tr>
+  `;
+}
+
+/**
+ * Render service status summary with colored indicator
+ * @param {Object} service - Service data
+ * @returns {string} HTML for the service status summary
+ */
+function renderStatusSummary(service) {
+  const status = service.status?.toLowerCase() || 'unknown';
+  const statusCode = service.status_code || '';
+  let statusIcon = '';
+  
+  switch (status) {
+    case 'healthy':
+      statusIcon = 'check_circle';
+      break;
+    case 'warning':
+      statusIcon = 'warning';
+      break;
+    case 'error':
+      statusIcon = 'error';
+      break;
+    case 'stale':
+      statusIcon = 'schedule';
+      break;
+    default:
+      statusIcon = 'help';
+  }
+  
+  return `
+    <div class="status-summary ${status}">
+      <div class="status-indicator ${status}"></div>
+      <div class="status-text">
+        <span>${status.charAt(0).toUpperCase() + status.slice(1)}</span>
+        ${statusCode ? `<span class="status-code">${statusCode}</span>` : ''}
+      </div>
+      <span class="material-symbols-rounded">${statusIcon}</span>
+    </div>
+  `;
+}
+
+/**
+ * Render service status with status code
+ * @param {Object} service - Service data
+ * @returns {string} HTML for the service status
+ */
+function renderServiceStatus(service) {
+  const status = service.status?.toLowerCase() || 'unknown';
+  const statusCode = service.status_code || '';
+  let statusIcon = '';
+  
+  switch (status) {
+    case 'healthy':
+      statusIcon = 'check_circle';
+      break;
+    case 'warning':
+      statusIcon = 'warning';
+      break;
+    case 'error':
+      statusIcon = 'error';
+      break;
+    case 'stale':
+      statusIcon = 'schedule';
+      break;
+    default:
+      statusIcon = 'help';
+  }
+  
+  return `
+    <div class="service-status ${status}">
+      <span class="material-symbols-rounded">${statusIcon}</span>
+      <span>${status.charAt(0).toUpperCase() + status.slice(1)}</span>
+      ${statusCode ? `<span class="status-code">${statusCode}</span>` : ''}
+    </div>
+  `;
+}
+
+/**
+ * Render status filter items
+ * @returns {string} HTML for status filter items
+ */
+function renderStatusFilters() {
+  return `
+    <div class="status-filters">
+      <div class="status-filter-item all active" data-status="all">
+        <span class="status-filter-label">All</span>
+      </div>
+      <div class="status-filter-item" data-status="healthy">
+        <div class="status-indicator healthy"></div>
+        <span class="status-filter-label">Healthy</span>
+      </div>
+      <div class="status-filter-item" data-status="warning">
+        <div class="status-indicator warning"></div>
+        <span class="status-filter-label">Warning</span>
+      </div>
+      <div class="status-filter-item" data-status="error">
+        <div class="status-indicator error"></div>
+        <span class="status-filter-label">Error</span>
+      </div>
+      <div class="status-filter-item" data-status="stale">
+        <div class="status-indicator stale"></div>
+        <span class="status-filter-label">Stale</span>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Ensure required DOM elements exist
+ * Creates missing elements if needed
+ */
+function ensureRequiredElements() {
+  // Check for main content container
+  let mainContent = document.querySelector('.main-content');
+  if (!mainContent) {
+    console.warn('Main content container not found, creating one');
+    const appContainer = document.querySelector('.app-container');
+    if (appContainer) {
+      mainContent = document.createElement('div');
+      mainContent.className = 'main-content';
+      appContainer.appendChild(mainContent);
+    } else {
+      // If app container doesn't exist, create the basic structure
+      console.warn('App container not found, creating basic app structure');
+      const body = document.body;
+      
+      const appContainer = document.createElement('div');
+      appContainer.className = 'app-container';
+      
+      mainContent = document.createElement('div');
+      mainContent.className = 'main-content';
+      
+      appContainer.appendChild(mainContent);
+      body.appendChild(appContainer);
+    }
+  }
+  
+  // Check for services container
+  if (!document.getElementById('servicesList')) {
+    console.warn('Services container not found, creating one');
+    const servicesContainer = document.createElement('div');
+    servicesContainer.id = 'servicesList';
+    servicesContainer.className = 'services-container';
+    mainContent.appendChild(servicesContainer);
+  }
+  
+  // Check for toast container
+  if (!document.getElementById('toastContainer')) {
+    console.warn('Toast container not found, creating one');
+    const body = document.body;
+    const toastContainer = document.createElement('div');
+    toastContainer.id = 'toastContainer';
+    toastContainer.className = 'toast-container';
+    body.appendChild(toastContainer);
+  }
+  
+  // Update elements object with any newly created elements
+  elements.servicesList = document.getElementById('servicesList');
+  elements.toastContainer = document.getElementById('toastContainer');
+  
+  // Also ensure view mode buttons exist
+  if (!elements.viewGridBtn) {
+    console.warn('View mode buttons not found');
+    elements.viewGridBtn = document.getElementById('viewGridBtn') || { classList: { add: () => {}, remove: () => {} } };
+    elements.viewTableBtn = document.getElementById('viewTableBtn') || { classList: { add: () => {}, remove: () => {} } };
+  }
+}
+
+/**
+ * Render services based on current view mode
+ */
+function renderServices() {
+  if (!elements.servicesList) {
+    console.error('Services container element not found');
+    return;
+  }
+  
+  // Clear existing content
+  elements.servicesList.innerHTML = '';
+  
+  // Get filtered services based on search
+  const filteredServices = filterServices();
+  
+  // Check if we have services to display
+  if (Object.keys(filteredServices).length === 0) {
+    elements.servicesList.innerHTML = `
+      <div class="no-services">
+        <div class="no-services-icon">
+          <span class="material-symbols-rounded">search_off</span>
+        </div>
+        <div class="no-services-message">
+          ${getTranslation('services.noServices') || 'No services found'}
+        </div>
+      </div>
+    `;
+    return;
+  }
+  
+  // Render based on view mode
+  if (state.viewMode === 'grid') {
+    renderServicesGrid(filteredServices);
+  } else {
+    renderServicesTable(filteredServices);
+  }
+  
+  // Update last updated timestamp
+  updateLastUpdated();
+}
+
+/**
+ * Render services in grid view
+ * @param {Object} services - Services to render
+ */
+function renderServicesGrid(services = null) {
+  const servicesToRender = services || filterServices();
+  
+  // Create grid container
+  const gridContainer = document.createElement('div');
+  gridContainer.className = 'services-grid';
+  
+  // Add services to grid
+  Object.values(servicesToRender).forEach(service => {
+    const serviceCard = document.createElement('div');
+    serviceCard.innerHTML = renderServiceCard(service);
+    gridContainer.appendChild(serviceCard.firstElementChild);
+  });
+  
+  // Add grid to services container
+  elements.servicesList.innerHTML = '';
+  elements.servicesList.appendChild(gridContainer);
+}
+
+/**
+ * Render services in table view
+ * @param {Object} services - Services to render
+ */
+function renderServicesTable(services = null) {
+  const servicesToRender = services || filterServices();
+  
+  // Create table
+  const table = document.createElement('table');
+  table.className = 'services-table';
+  
+  // Create table header
+  const thead = document.createElement('thead');
+  thead.innerHTML = `
+    <tr>
+      <th class="service-name-header">Name</th>
+      <th class="service-status-header">Status</th>
+      <th class="service-host-header">Host</th>
+      <th class="service-port-header">Port</th>
+      <th class="service-updated-header">Last Updated</th>
+      <th class="service-actions-header">Actions</th>
+    </tr>
+  `;
+  table.appendChild(thead);
+  
+  // Create table body
+  const tbody = document.createElement('tbody');
+  Object.values(servicesToRender).forEach(service => {
+    const row = document.createElement('tr');
+    row.innerHTML = renderServiceRow(service);
+    tbody.appendChild(row.firstElementChild);
+  });
+  table.appendChild(tbody);
+  
+  // Add table to services container
+  elements.servicesList.innerHTML = '';
+  elements.servicesList.appendChild(table);
+}
+
+/**
+ * Filter services based on search input
+ * @returns {Object} Filtered services
+ */
+function filterServices() {
+  const searchTerm = elements.searchInput.value.toLowerCase().trim();
+  
+  // If no search term, return all services
+  if (!searchTerm) {
+    return state.services;
+  }
+  
+  // Filter services based on search term
+  return Object.values(state.services).reduce((filtered, service) => {
+    const serviceName = service.name.toLowerCase();
+    const serviceHost = (service.host || '').toLowerCase();
+    const serviceStatus = (service.status || '').toLowerCase();
+    
+    if (
+      serviceName.includes(searchTerm) ||
+      serviceHost.includes(searchTerm) ||
+      serviceStatus.includes(searchTerm)
+    ) {
+      filtered[service.id] = service;
+    }
+    
+    return filtered;
+  }, {});
+}
+
+/**
+ * Format a timestamp based on user preference
+ * @param {string|number} timestamp - The timestamp to format
+ * @returns {string} Formatted timestamp
+ */
+function formatTimestamp(timestamp) {
+  if (!timestamp) return 'N/A';
+  
+  const dateFormat = getStoredValue('laneswap-date-format', 'relative');
+  const date = new Date(timestamp);
+  
+  // Check if date is valid
+  if (isNaN(date.getTime())) return 'Invalid date';
+  
+  switch (dateFormat) {
+    case 'relative':
+      return getRelativeTime(date);
+    case 'absolute':
+      return getAbsoluteTime(date);
+    case 'iso':
+      return date.toISOString();
+    default:
+      return getRelativeTime(date);
+  }
+}
+
+/**
+ * Get relative time (e.g., "2 minutes ago")
+ * @param {Date} date - The date to format
+ * @returns {string} Relative time string
+ */
+function getRelativeTime(date) {
+  const now = new Date();
+  const diffMs = now - date;
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+  
+  if (diffSec < 60) {
+    return `${diffSec} ${diffSec === 1 ? 'second' : 'seconds'} ago`;
+  } else if (diffMin < 60) {
+    return `${diffMin} ${diffMin === 1 ? 'minute' : 'minutes'} ago`;
+  } else if (diffHour < 24) {
+    return `${diffHour} ${diffHour === 1 ? 'hour' : 'hours'} ago`;
+  } else if (diffDay < 30) {
+    return `${diffDay} ${diffDay === 1 ? 'day' : 'days'} ago`;
+  } else {
+    // Fall back to absolute time for older dates
+    return getAbsoluteTime(date);
+  }
+}
+
+/**
+ * Get absolute time (e.g., "Jan 1, 2023 12:34 PM")
+ * @param {Date} date - The date to format
+ * @returns {string} Absolute time string
+ */
+function getAbsoluteTime(date) {
+  const options = { 
+    year: 'numeric', 
+    month: 'short', 
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  };
+  
+  return date.toLocaleDateString(undefined, options);
+}
+
+/**
+ * Get translation for a key
+ * @param {string} key - The translation key
+ * @returns {string|null} The translated string or null if not found
+ */
+function getTranslation(key) {
+  // Check if translations are available
+  if (typeof translations === 'undefined' || !translations[state.currentLanguage]) {
+    return null;
+  }
+  
+  // Split the key by dots to access nested properties
+  const keys = key.split('.');
+  let result = translations[state.currentLanguage];
+  
+  // Navigate through the nested properties
+  for (const k of keys) {
+    if (result && typeof result === 'object' && k in result) {
+      result = result[k];
+    } else {
+      return null;
+    }
+  }
+  
+  return typeof result === 'string' ? result : null;
+}
+
+/**
+ * Add enhanced monitoring features
+ * Replaces status-summary with more useful metrics
+ */
+function addEnhancedMonitoring() {
+  // Create metrics dashboard
+  const metricsDashboard = document.createElement('div');
+  metricsDashboard.className = 'metrics-dashboard';
+  metricsDashboard.innerHTML = `
+    <div class="metrics-header">
+      <h3>System Metrics</h3>
+      <div class="metrics-actions">
+        <button class="btn btn-sm btn-primary refresh-metrics-btn">
+          <span class="material-symbols-rounded">refresh</span>
+          <span>Refresh</span>
+        </button>
+      </div>
+    </div>
+    <div class="metrics-grid">
+      ${renderSystemMetrics()}
+    </div>
+  `;
+  
+  // Add to main content
+  const mainContent = document.querySelector('.main-content');
+  if (mainContent) {
+    // Insert after the connection section
+    const connectionSection = document.querySelector('.connection-section');
+    if (connectionSection && connectionSection.nextSibling) {
+      mainContent.insertBefore(metricsDashboard, connectionSection.nextSibling);
+    } else {
+      mainContent.appendChild(metricsDashboard);
+    }
+  }
+  
+  // Add compact monitoring summary to header
+  const monitoringSummary = document.getElementById('monitoringSummary');
+  if (monitoringSummary) {
+    monitoringSummary.innerHTML = `
+      <div class="compact-metrics">
+        <div class="compact-metric cpu">
+          <span class="material-symbols-rounded">memory</span>
+          <span class="compact-value" id="headerCpuUsage">--</span>
+        </div>
+        <div class="compact-metric memory">
+          <span class="material-symbols-rounded">memory_alt</span>
+          <span class="compact-value" id="headerMemoryUsage">--</span>
+        </div>
+        <div class="compact-metric disk">
+          <span class="material-symbols-rounded">hard_drive</span>
+          <span class="compact-value" id="headerDiskUsage">--</span>
+        </div>
+      </div>
+    `;
+  }
+  
+  // Add event listener for refresh button
+  const refreshBtn = metricsDashboard.querySelector('.refresh-metrics-btn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => {
+      updateSystemMetrics();
+      showToast('Metrics refreshed', 'success');
+    });
+  }
+  
+  // Initial update of metrics
+  updateSystemMetrics();
+  
+  // Set up interval to update metrics
+  setInterval(updateSystemMetrics, 10000); // Update every 10 seconds
+}
+
+/**
+ * Render system metrics cards
+ * @returns {string} HTML for system metrics
+ */
+function renderSystemMetrics() {
+  return `
+    <div class="metric-card cpu">
+      <div class="metric-icon">
+        <span class="material-symbols-rounded">memory</span>
+      </div>
+      <div class="metric-content">
+        <h4 class="metric-title">CPU Usage</h4>
+        <div class="metric-value" id="cpuUsage">--</div>
+        <div class="metric-chart" id="cpuChart"></div>
+      </div>
+    </div>
+    
+    <div class="metric-card memory">
+      <div class="metric-icon">
+        <span class="material-symbols-rounded">memory_alt</span>
+      </div>
+      <div class="metric-content">
+        <h4 class="metric-title">Memory Usage</h4>
+        <div class="metric-value" id="memoryUsage">--</div>
+        <div class="metric-chart" id="memoryChart"></div>
+      </div>
+    </div>
+    
+    <div class="metric-card disk">
+      <div class="metric-icon">
+        <span class="material-symbols-rounded">hard_drive</span>
+      </div>
+      <div class="metric-content">
+        <h4 class="metric-title">Disk Usage</h4>
+        <div class="metric-value" id="diskUsage">--</div>
+        <div class="metric-chart" id="diskChart"></div>
+      </div>
+    </div>
+    
+    <div class="metric-card network">
+      <div class="metric-icon">
+        <span class="material-symbols-rounded">lan</span>
+      </div>
+      <div class="metric-content">
+        <h4 class="metric-title">Network Traffic</h4>
+        <div class="metric-value" id="networkTraffic">--</div>
+        <div class="metric-chart" id="networkChart"></div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Update system metrics with real data
+ */
+function updateSystemMetrics() {
+  // Simulate fetching system metrics
+  const cpuUsage = Math.floor(Math.random() * 100);
+  const memoryUsage = Math.floor(Math.random() * 100);
+  const diskUsage = Math.floor(Math.random() * 100);
+  const networkTraffic = Math.floor(Math.random() * 1000);
+  
+  // Update main dashboard elements
+  const cpuElement = document.getElementById('cpuUsage');
+  if (cpuElement) cpuElement.textContent = `${cpuUsage}%`;
+  
+  const memoryElement = document.getElementById('memoryUsage');
+  if (memoryElement) memoryElement.textContent = `${memoryUsage}%`;
+  
+  const diskElement = document.getElementById('diskUsage');
+  if (diskElement) diskElement.textContent = `${diskUsage}%`;
+  
+  const networkElement = document.getElementById('networkTraffic');
+  if (networkElement) networkElement.textContent = `${networkTraffic} KB/s`;
+  
+  // Update header compact metrics
+  const headerCpuElement = document.getElementById('headerCpuUsage');
+  if (headerCpuElement) headerCpuElement.textContent = `${cpuUsage}%`;
+  
+  const headerMemoryElement = document.getElementById('headerMemoryUsage');
+  if (headerMemoryElement) headerMemoryElement.textContent = `${memoryUsage}%`;
+  
+  const headerDiskElement = document.getElementById('headerDiskUsage');
+  if (headerDiskElement) headerDiskElement.textContent = `${diskUsage}%`;
+  
+  // Update charts
+  updateMetricChart('cpuChart', cpuUsage, 100);
+  updateMetricChart('memoryChart', memoryUsage, 100);
+  updateMetricChart('diskChart', diskUsage, 100);
+  updateMetricChart('networkChart', networkTraffic, 1000);
+}
+
+/**
+ * Update a metric chart
+ * @param {string} elementId - Chart element ID
+ * @param {number} value - Current value
+ * @param {number} max - Maximum value
+ */
+function updateMetricChart(elementId, value, max) {
+  const chartElement = document.getElementById(elementId);
+  if (!chartElement) return;
+  
+  // Clear previous chart
+  chartElement.innerHTML = '';
+  
+  // Create progress bar
+  const percentage = (value / max) * 100;
+  const progressBar = document.createElement('div');
+  progressBar.className = 'progress-bar';
+  progressBar.innerHTML = `
+    <div class="progress-fill" style="width: ${percentage}%"></div>
+  `;
+  
+  // Add color class based on value
+  if (percentage > 80) {
+    progressBar.classList.add('critical');
+  } else if (percentage > 60) {
+    progressBar.classList.add('warning');
+  } else {
+    progressBar.classList.add('normal');
+  }
+  
+  chartElement.appendChild(progressBar);
+}
