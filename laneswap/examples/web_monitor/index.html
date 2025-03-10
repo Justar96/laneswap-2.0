@@ -45,9 +45,10 @@
                 <button id="themeToggleBtn" class="theme-toggle" aria-label="Toggle theme">
                     <span class="material-symbols-rounded">dark_mode</span>
                 </button>
-                <div class="language-switcher">
-                    <button class="lang-btn active" onclick="changeLanguage('en')">EN</button>
-                    <button class="lang-btn" onclick="changeLanguage('th')">TH</button>
+                
+                <div class="language-switcher" data-active="en">
+                    <button class="lang-btn active" data-lang="en" onclick="changeLanguage('en')">EN</button>
+                    <button class="lang-btn" data-lang="th" onclick="changeLanguage('th')">TH</button>
                 </div>
             </div>
         </aside>
@@ -80,130 +81,63 @@
             </header>
             
             <div class="container-fluid px-3 py-3">
-                <div class="row mb-3">
+                <div class="row">
                     <div class="col-12">
-                        <!-- Connection Section -->
-                        <section class="connection-section p-3">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <div class="search-box position-relative">
-                                        <span class="material-symbols-rounded search-icon position-absolute">search</span>
-                                        <input type="text" id="searchInput" class="form-control search-input" placeholder="Search services..." data-i18n-placeholder="search.placeholder">
-                                        <button id="clearSearchBtn" class="btn clear-btn position-absolute end-0 d-flex align-items-center justify-content-center" aria-label="Clear search">
-                                            <span class="material-symbols-rounded">close</span>
-                                        </button>
-                                    </div>
+                        <!-- Connection Section - Compact -->
+                        <section class="connection-section">
+                            <div class="connection-header">
+                                <div class="search-box">
+                                    <span class="material-symbols-rounded search-icon">search</span>
+                                    <input type="text" id="searchInput" class="search-input" placeholder="Search services..." data-i18n-placeholder="search.placeholder">
+                                    <button id="clearSearchBtn" class="clear-btn" aria-label="Clear search">
+                                        <span class="material-symbols-rounded">close</span>
+                                    </button>
                                 </div>
                                 
-                                <div class="col-md-6">
-                                    <div class="api-connection d-flex">
-                                        <div class="input-container position-relative flex-grow-1 me-2">
-                                            <span class="material-symbols-rounded input-icon position-absolute">link</span>
-                                            <input type="text" id="apiUrlInput" class="form-control api-input" placeholder="http://localhost:8000" data-i18n-placeholder="api.urlPlaceholder">
-                                        </div>
-                                        <button id="connectBtn" class="btn connect-btn" data-i18n="api.connect">Connect</button>
+                                <div class="api-connection">
+                                    <div class="input-container">
+                                        <span class="material-symbols-rounded input-icon">link</span>
+                                        <input type="text" id="apiUrlInput" class="api-input" placeholder="http://localhost:8000" data-i18n-placeholder="api.urlPlaceholder">
                                     </div>
+                                    <button id="connectBtn" class="connect-btn" data-i18n="api.connect">Connect</button>
                                 </div>
                             </div>
                         </section>
                     </div>
                 </div>
 
-                <div class="row mb-3">
+                <div class="row">
                     <div class="col-12">
-                        <!-- Metrics Section -->
+                        <!-- Metrics Section - Redesigned -->
                         <section class="metrics-section">
-                            <div class="metrics-header d-flex justify-content-between align-items-center p-3">
-                                <h2 class="metrics-title d-flex align-items-center mb-0">
-                                    <span class="material-symbols-rounded me-2">analytics</span>
-                                    <span data-i18n="summary.title">Service Status</span>
+                            <div class="metrics-header">
+                                <h2 class="metrics-title">
+                                    <span class="material-symbols-rounded">analytics</span>
+                                    <span data-i18n="summary.title">Status</span>
                                 </h2>
-                                <div class="metrics-actions">
-                                    <button class="btn metrics-refresh-btn d-flex align-items-center justify-content-center" id="refreshMetricsBtn">
-                                        <span class="material-symbols-rounded">refresh</span>
-                                    </button>
-                                </div>
                             </div>
                             
-                            <div class="table-responsive">
-                                <table class="metrics-table table mb-0">
-                                    <thead>
-                                        <tr class="metrics-table-header">
-                                            <th>Status</th>
-                                            <th>Count</th>
-                                            <th>Percentage</th>
-                                            <th>Bar</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr class="metrics-table-row healthy-row">
-                                            <td class="status-cell">
-                                                <div class="status-dot healthy"></div>
-                                                <span data-i18n="summary.healthy">Healthy</span>
-                                            </td>
-                                            <td class="count-cell" id="healthyCount">0</td>
-                                            <td class="percent-cell" id="healthyPercentage">0%</td>
-                                            <td class="bar-cell">
-                                                <div class="bar-container">
-                                                    <div class="bar-fill healthy" id="healthyProgress" style="width: 0%"></div>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr class="metrics-table-row warning-row">
-                                            <td class="status-cell">
-                                                <div class="status-dot warning"></div>
-                                                <span data-i18n="summary.warning">Warning</span>
-                                            </td>
-                                            <td class="count-cell" id="warningCount">0</td>
-                                            <td class="percent-cell" id="warningPercentage">0%</td>
-                                            <td class="bar-cell">
-                                                <div class="bar-container">
-                                                    <div class="bar-fill warning" id="warningProgress" style="width: 0%"></div>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr class="metrics-table-row error-row">
-                                            <td class="status-cell">
-                                                <div class="status-dot error"></div>
-                                                <span data-i18n="summary.error">Error</span>
-                                            </td>
-                                            <td class="count-cell" id="errorCount">0</td>
-                                            <td class="percent-cell" id="errorPercentage">0%</td>
-                                            <td class="bar-cell">
-                                                <div class="bar-container">
-                                                    <div class="bar-fill error" id="errorProgress" style="width: 0%"></div>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr class="metrics-table-row stale-row">
-                                            <td class="status-cell">
-                                                <div class="status-dot stale"></div>
-                                                <span data-i18n="summary.stale">Stale</span>
-                                            </td>
-                                            <td class="count-cell" id="staleCount">0</td>
-                                            <td class="percent-cell" id="stalePercentage">0%</td>
-                                            <td class="bar-cell">
-                                                <div class="bar-container">
-                                                    <div class="bar-fill stale" id="staleProgress" style="width: 0%"></div>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr class="metrics-table-row total-row">
-                                            <td class="status-cell">
-                                                <div class="status-dot total"></div>
-                                                <span data-i18n="summary.total">Total</span>
-                                            </td>
-                                            <td class="count-cell" id="totalCount">0</td>
-                                            <td class="percent-cell">100%</td>
-                                            <td class="uptime-cell">
-                                                <div class="uptime-indicator d-flex align-items-center">
-                                                    <span class="material-symbols-rounded me-1">schedule</span>
-                                                    <span id="uptimeValue">-</span>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                            <div class="status-summary">
+                                <div class="status-item">
+                                    <div class="status-dot healthy"></div>
+                                    <span class="status-label">Healthy</span>
+                                    <span class="status-count" id="healthyCount">0</span>
+                                </div>
+                                <div class="status-item">
+                                    <div class="status-dot warning"></div>
+                                    <span class="status-label">Warning</span>
+                                    <span class="status-count" id="warningCount">0</span>
+                                </div>
+                                <div class="status-item">
+                                    <div class="status-dot error"></div>
+                                    <span class="status-label">Error</span>
+                                    <span class="status-count" id="errorCount">0</span>
+                                </div>
+                                <div class="status-item">
+                                    <div class="status-dot stale"></div>
+                                    <span class="status-label">Stale</span>
+                                    <span class="status-count" id="staleCount">0</span>
+                                </div>
                             </div>
                         </section>
                     </div>

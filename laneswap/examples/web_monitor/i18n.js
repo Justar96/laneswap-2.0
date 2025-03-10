@@ -272,4 +272,63 @@ document.addEventListener('DOMContentLoaded', () => {
             changeLanguage(e.target.value);
         });
     }
-}); 
+});
+
+/**
+ * Update all translations on the page
+ * @param {string} lang - Language code ('en' or 'th')
+ */
+function updateTranslations(lang) {
+    // Update current language
+    currentLanguage = lang;
+    
+    // Update all elements with data-i18n attribute
+    const elements = document.querySelectorAll('[data-i18n]');
+    elements.forEach(element => {
+        const key = element.getAttribute('data-i18n');
+        const keys = key.split('.');
+        let translation = translations[lang];
+        
+        // Navigate through nested keys
+        for (const k of keys) {
+            if (translation && translation[k]) {
+                translation = translation[k];
+            } else {
+                translation = key;
+                break;
+            }
+        }
+        
+        if (typeof translation === 'string') {
+            element.textContent = translation;
+        }
+    });
+    
+    // Update placeholders
+    const placeholderElements = document.querySelectorAll('[data-i18n-placeholder]');
+    placeholderElements.forEach(element => {
+        const key = element.getAttribute('data-i18n-placeholder');
+        const keys = key.split('.');
+        let translation = translations[lang];
+        
+        // Navigate through nested keys
+        for (const k of keys) {
+            if (translation && translation[k]) {
+                translation = translation[k];
+            } else {
+                translation = key;
+                break;
+            }
+        }
+        
+        if (typeof translation === 'string') {
+            element.placeholder = translation;
+        }
+    });
+    
+    // Update document title
+    document.title = translations[lang].title;
+}
+
+// Make updateTranslations available globally
+window.updateTranslations = updateTranslations; 

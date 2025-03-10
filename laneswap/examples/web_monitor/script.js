@@ -12,7 +12,8 @@ const state = {
   viewMode: 'grid',
   focusedServiceId: null,
   searchDebounceTimer: null,
-  isSidebarExpanded: true
+  isSidebarExpanded: true,
+  currentLanguage: 'en'
 };
 
 // ===== DOM ELEMENTS =====
@@ -101,6 +102,11 @@ function init() {
   } else {
     appContainer.classList.add('sidebar-collapsed');
   }
+  
+  // Initialize language after DOM is fully loaded
+  document.addEventListener('DOMContentLoaded', () => {
+    initializeLanguage();
+  });
 }
 
 /**
@@ -883,98 +889,68 @@ function renderTableView(filteredServices) {
 }
 
 /**
- * Update the summary UI
- * @param {Object} summary - Summary data object
+ * Update the summary UI with service statistics
+ * @param {Object} stats - Service statistics object
  */
-function updateSummaryUI(summary) {
-  if (!summary) return;
-  
-  // Get the counts
-  const healthyCount = summary.healthy || 0;
-  const warningCount = summary.warning || 0;
-  const errorCount = summary.error || 0;
-  const staleCount = summary.stale || 0;
-  const totalCount = summary.total || 0;
-  
-  // Update count elements
-  document.getElementById('healthyCount').textContent = healthyCount;
-  document.getElementById('warningCount').textContent = warningCount;
-  document.getElementById('errorCount').textContent = errorCount;
-  document.getElementById('staleCount').textContent = staleCount;
-  document.getElementById('totalCount').textContent = totalCount;
-  
-  // Calculate percentages
-  if (totalCount > 0) {
-    const healthyPercentage = Math.round((healthyCount / totalCount) * 100);
-    const warningPercentage = Math.round((warningCount / totalCount) * 100);
-    const errorPercentage = Math.round((errorCount / totalCount) * 100);
-    const stalePercentage = Math.round((staleCount / totalCount) * 100);
+function updateSummaryUI(stats) {
+  try {
+    // Default values if stats is undefined
+    const data = stats || { 
+      healthy: 0, 
+      warning: 0, 
+      error: 0, 
+      stale: 0, 
+      total: 0,
+      healthyPercentage: 0,
+      warningPercentage: 0,
+      errorPercentage: 0,
+      stalePercentage: 0
+    };
     
-    // Update percentage displays
-    document.getElementById('healthyPercentage').textContent = `${healthyPercentage}%`;
-    document.getElementById('warningPercentage').textContent = `${warningPercentage}%`;
-    document.getElementById('errorPercentage').textContent = `${errorPercentage}%`;
-    document.getElementById('stalePercentage').textContent = `${stalePercentage}%`;
+    // Update count elements
+    const healthyCountElement = document.getElementById('healthyCount');
+    const warningCountElement = document.getElementById('warningCount');
+    const errorCountElement = document.getElementById('errorCount');
+    const staleCountElement = document.getElementById('staleCount');
     
-    // Update progress bars
-    document.getElementById('healthyProgress').style.width = `${healthyPercentage}%`;
-    document.getElementById('warningProgress').style.width = `${warningPercentage}%`;
-    document.getElementById('errorProgress').style.width = `${errorPercentage}%`;
-    document.getElementById('staleProgress').style.width = `${stalePercentage}%`;
+    // Safely update elements if they exist
+    if (healthyCountElement) healthyCountElement.textContent = data.healthy;
+    if (warningCountElement) warningCountElement.textContent = data.warning;
+    if (errorCountElement) errorCountElement.textContent = data.error;
+    if (staleCountElement) staleCountElement.textContent = data.stale;
     
-    // Calculate and display uptime if available
-    if (summary.uptime) {
-      document.getElementById('uptimeValue').textContent = formatUptime(summary.uptime);
-    } else {
-      // If no uptime data, estimate based on healthy percentage
-      const uptimeEstimate = healthyPercentage;
-      document.getElementById('uptimeValue').textContent = `~${uptimeEstimate}% ${getTranslation('summary.estimatedUptime') || 'estimated'}`;
-    }
-  } else {
-    // Reset percentages and progress bars if no services
-    const percentageElements = ['healthyPercentage', 'warningPercentage', 'errorPercentage', 'stalePercentage'];
-    const progressElements = ['healthyProgress', 'warningProgress', 'errorProgress', 'staleProgress'];
-    
-    percentageElements.forEach(id => {
-      document.getElementById(id).textContent = '0%';
-    });
-    
-    progressElements.forEach(id => {
-      document.getElementById(id).style.width = '0%';
-    });
-    
-    document.getElementById('uptimeValue').textContent = '-';
+    // Update the document title to show current status
+    updateDocumentTitle(data);
+  } catch (error) {
+    console.error('Error updating summary UI:', error);
   }
 }
 
 /**
- * Format uptime value into a readable string
- * @param {number} uptime - Uptime value in seconds or as a percentage
- * @returns {string} Formatted uptime string
+ * Update document title to reflect current status
+ * @param {Object} stats - Service statistics object
  */
-function formatUptime(uptime) {
-  // If uptime is already a percentage string
-  if (typeof uptime === 'string' && uptime.includes('%')) {
-    return uptime;
+function updateDocumentTitle(stats) {
+  if (!stats) return;
+  
+  let prefix = '';
+  
+  // Add status indicator to title
+  if (stats.error > 0) {
+    prefix = '🔴 ';
+  } else if (stats.warning > 0) {
+    prefix = '🟠 ';
+  } else if (stats.stale > 0) {
+    prefix = '⚪ ';
+  } else if (stats.healthy > 0) {
+    prefix = '🟢 ';
   }
   
-  // If uptime is a percentage number
-  if (uptime >= 0 && uptime <= 100) {
-    return `${uptime}%`;
-  }
+  // Get base title
+  const baseTitle = translations[state.currentLanguage].title || 'LaneSwap Monitor';
   
-  // If uptime is in seconds, convert to a readable format
-  const days = Math.floor(uptime / 86400);
-  const hours = Math.floor((uptime % 86400) / 3600);
-  const minutes = Math.floor((uptime % 3600) / 60);
-  
-  if (days > 0) {
-    return `${days}d ${hours}h`;
-  } else if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  } else {
-    return `${minutes}m`;
-  }
+  // Update document title
+  document.title = `${prefix}${baseTitle}`;
 }
 
 /**
@@ -1022,6 +998,86 @@ function openHelpModal() {
     modal.show();
   } catch (error) {
     console.error('Error showing help modal:', error);
+  }
+}
+
+/**
+ * Change the application language
+ * @param {string} lang - Language code ('en' or 'th')
+ */
+function changeLanguage(lang) {
+  if (!['en', 'th'].includes(lang)) return;
+
+  // Update state
+  state.currentLanguage = lang;
+  
+  // Get UI elements
+  const languageSwitcher = document.querySelector('.language-switcher');
+  const langButtons = document.querySelectorAll('.lang-btn');
+  
+  // Update buttons
+  langButtons.forEach(btn => {
+    const isActive = btn.dataset.lang === lang;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', isActive);
+  });
+  
+  // Move indicator
+  languageSwitcher.setAttribute('data-active', lang);
+  
+  // Store preference
+  localStorage.setItem('laneswap-language', lang);
+  
+  try {
+    // Update translations using the global function
+    if (typeof window.updateTranslations === 'function') {
+      window.updateTranslations(lang);
+    } else {
+      console.error('updateTranslations function not found');
+    }
+    
+    // Show feedback
+    showToast(`Language changed to ${lang.toUpperCase()}`, 'success');
+  } catch (error) {
+    console.error('Error updating translations:', error);
+    showToast('Error changing language', 'error');
+  }
+}
+
+/**
+ * Initialize language preference
+ */
+function initializeLanguage() {
+  try {
+    // Get saved language preference or default to 'en'
+    const savedLang = localStorage.getItem('laneswap-language') || 'en';
+    
+    // Validate saved language
+    const lang = ['en', 'th'].includes(savedLang) ? savedLang : 'en';
+    
+    // Update state
+    state.currentLanguage = lang;
+    
+    // Get UI elements
+    const languageSwitcher = document.querySelector('.language-switcher');
+    const langButtons = document.querySelectorAll('.lang-btn');
+    
+    // Set initial button states
+    langButtons.forEach(btn => {
+      const isActive = btn.dataset.lang === lang;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-pressed', isActive);
+    });
+    
+    // Set initial indicator position
+    languageSwitcher.setAttribute('data-active', lang);
+    
+    // Set initial translations
+    updateTranslations(lang);
+  } catch (error) {
+    console.error('Error initializing language:', error);
+    // Set fallback to English
+    state.currentLanguage = 'en';
   }
 }
 
