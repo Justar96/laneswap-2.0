@@ -97,7 +97,6 @@ const translations = {
         error: "Error loading services",
         noServices: "No services found",
         lastUpdated: "Last updated: Never",
-        poweredBy: "powered by"
     },
     th: {
         title: "ระบบติดตาม laneswap",
@@ -196,7 +195,6 @@ const translations = {
         error: "เกิดข้อผิดพลาดในการโหลดบริการ",
         noServices: "ไม่พบบริการ",
         lastUpdated: "อัปเดตล่าสุด: ไม่เคย",
-        poweredBy: "ขับเคลื่อนโดย"
     }
 };
 

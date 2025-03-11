@@ -7,6 +7,7 @@ from other services.
 
 import asyncio
 import logging
+import warnings
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
@@ -51,9 +52,14 @@ class LaneswapAsyncClient:
         self.service_name = service_name
         self.heartbeat_interval = heartbeat_interval
         self.auto_heartbeat = auto_heartbeat
+        self.metadata: Dict[str, Any] = {}
+        self._session: Optional[aiohttp.ClientSession] = None
         self._heartbeat_task = None
-        self._session = None
-        self._metadata = {}
+        self._connected = False
+        
+        # Validate parameters
+        if not self.service_id and not self.service_name:
+            raise ValueError("Either service_id or service_name must be provided")
         
     async def __aenter__(self):
         """Async context manager entry."""
@@ -61,53 +67,86 @@ class LaneswapAsyncClient:
         return self
         
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        await self.disconnect()
+        """Exit the async context manager."""
+        await self.close()
         
     async def connect(self) -> str:
         """
-        Connect to the LaneSwap API and register the service.
+        Connect to the LaneSwap API and register the service if needed.
+        
+        This method:
+        1. Creates an aiohttp session if one doesn't exist
+        2. Registers the service if no service_id is provided
+        3. Starts the automatic heartbeat task if enabled
+        
+        If the client is already connected, this method will return the existing service_id
+        without creating a new connection.
         
         Returns:
-            str: The service ID
+            str: Service ID
         """
+        # If already connected, just return the service ID
+        if self._connected and self.service_id:
+            return self.service_id
+            
+        # Create session if it doesn't exist
         if self._session is None:
             self._session = aiohttp.ClientSession()
-            
-        if self.service_id is None:
-            if not self.service_name:
-                raise ValueError("service_name is required when service_id is not provided")
-                
-            # Register the service
+        
+        # Register service if needed
+        if not self.service_id:
             self.service_id = await self.register_service(
-                service_name=self.service_name,
-                metadata=self._metadata
+                service_name=self.service_name
             )
-            
-        if self.auto_heartbeat and self._heartbeat_task is None:
+        
+        # Start heartbeat task if auto_heartbeat is enabled
+        if self.auto_heartbeat and not self._heartbeat_task:
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         
-        # Log the monitor URL
-        monitor_url = await self.get_monitor_url()
-        logger.info(f"Service registered with ID: {self.service_id}")
-        logger.info(f"Monitor URL: {monitor_url}")
-        
+        self._connected = True
         return self.service_id
         
     async def disconnect(self):
-        """Disconnect from the LaneSwap API."""
-        if self._heartbeat_task:
+        """
+        Disconnect from the LaneSwap API.
+        
+        Deprecated: Use close() instead.
+        """
+        warnings.warn(
+            "disconnect() is deprecated, use close() instead",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        await self.close()
+        
+    async def close(self):
+        """
+        Close the client session and clean up resources.
+        
+        This method:
+        1. Cancels any running heartbeat task
+        2. Closes the aiohttp session
+        3. Resets the connection state
+        
+        It's safe to call this method multiple times.
+        """
+        # Stop heartbeat task if running
+        if self._heartbeat_task and not self._heartbeat_task.done():
             self._heartbeat_task.cancel()
             try:
                 await self._heartbeat_task
             except asyncio.CancelledError:
                 pass
             self._heartbeat_task = None
-            
+        
+        # Close session if it exists
         if self._session:
             await self._session.close()
             self._session = None
-            
+        
+        self._connected = False
+        logger.debug("Client disconnected")
+        
     async def register_service(
         self,
         service_name: str,
@@ -151,11 +190,26 @@ class LaneswapAsyncClient:
         message: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Send a heartbeat to the LaneSwap API."""
+        """
+        Send a heartbeat to the LaneSwap API.
+        
+        Args:
+            status: Current status of the service
+            message: Optional status message
+            metadata: Additional metadata to include with the heartbeat
+            
+        Returns:
+            Dict[str, Any]: Response from the API
+            
+        Raises:
+            ValueError: If the service is not registered
+            RuntimeError: If the heartbeat request fails
+        """
         if not self.service_id:
             raise ValueError("Service not registered. Call connect() first.")
             
-        if self._session is None:
+        # Ensure we have a session
+        if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
             
         heartbeat = ServiceHeartbeat(
@@ -185,11 +239,16 @@ class LaneswapAsyncClient:
         
         Returns:
             Dict[str, Any]: The service status
+            
+        Raises:
+            ValueError: If the service is not registered
+            RuntimeError: If the status request fails
         """
         if not self.service_id:
             raise ValueError("Service not registered. Call connect() first.")
             
-        if self._session is None:
+        # Ensure we have a session
+        if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
             
         async with self._session.get(
@@ -197,6 +256,8 @@ class LaneswapAsyncClient:
         ) as response:
             if response.status != 200:
                 error_text = await response.text()
+                if response.status == 404:
+                    raise ServiceNotFoundError(f"Service not found: {self.service_id}")
                 raise RuntimeError(f"Failed to get service status: {error_text}")
                 
             return await response.json()
@@ -207,8 +268,12 @@ class LaneswapAsyncClient:
         
         Returns:
             Dict[str, Any]: Dictionary with services data and summary statistics
+            
+        Raises:
+            RuntimeError: If the request fails
         """
-        if self._session is None:
+        # Ensure we have a session
+        if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
             
         async with self._session.get(
@@ -227,7 +292,7 @@ class LaneswapAsyncClient:
         Args:
             metadata: Metadata to set
         """
-        self._metadata.update(metadata)
+        self.metadata.update(metadata)
         
     async def _heartbeat_loop(self):
         """Background task to send periodic heartbeats."""
@@ -235,7 +300,7 @@ class LaneswapAsyncClient:
             try:
                 await self.send_heartbeat(
                     status=HeartbeatStatus.HEALTHY,
-                    metadata=self._metadata
+                    metadata=self.metadata
                 )
             except Exception as e:
                 logger.error(f"Failed to send heartbeat: {str(e)}")

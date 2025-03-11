@@ -26,9 +26,19 @@ from ..core.heartbeat import (
 )
 from ..client.async_client import LaneswapAsyncClient
 from ..core.config import API_URL, MONITOR_URL
+from ..adapters.discord import DiscordWebhookAdapter
 
 logger = logging.getLogger("laneswap.cli")
 
+# Global Discord adapter for CLI commands
+_discord_adapter = None
+
+def get_discord_adapter() -> DiscordWebhookAdapter:
+    """Get or create the Discord adapter singleton."""
+    global _discord_adapter
+    if _discord_adapter is None:
+        _discord_adapter = DiscordWebhookAdapter()
+    return _discord_adapter
 
 def setup_logging(log_level: str = "INFO"):
     """Set up logging configuration."""
@@ -423,6 +433,138 @@ def check_servers():
     print(f"  API server:    laneswap server --port {API_URL.split(':')[-1]}")
     print(f"  Web monitor:   laneswap dashboard --port {MONITOR_URL.split(':')[-1]} --api-url {API_URL}")
 
+@cli.group()
+def discord():
+    """Manage Discord webhook notifications."""
+    pass
+
+@discord.command()
+@click.option('--webhook-url', required=True, help='Discord webhook URL')
+@click.option('--username', default='Laneswap Monitor', help='Display name for the webhook')
+@click.option('--avatar-url', help='Avatar URL for the webhook')
+def setup(webhook_url, username, avatar_url):
+    """Set up the default Discord webhook."""
+    adapter = get_discord_adapter()
+    adapter.webhook_url = webhook_url
+    adapter.username = username
+    if avatar_url:
+        adapter.avatar_url = avatar_url
+    
+    click.echo(f"Default Discord webhook configured with URL: {webhook_url}")
+    click.echo(f"Username: {username}")
+    if avatar_url:
+        click.echo(f"Avatar URL: {avatar_url}")
+
+@discord.command()
+@click.option('--service-id', required=True, help='Service ID to configure webhook for')
+@click.option('--webhook-url', required=True, help='Discord webhook URL')
+@click.option('--username', help='Display name for the webhook (defaults to global setting)')
+@click.option('--avatar-url', help='Avatar URL for the webhook (defaults to global setting)')
+@click.option('--levels', help='Comma-separated list of notification levels (info,success,warning,error)')
+def register(service_id, webhook_url, username, avatar_url, levels):
+    """Register a Discord webhook for a specific service."""
+    adapter = get_discord_adapter()
+    
+    notification_levels = None
+    if levels:
+        notification_levels = [level.strip().lower() for level in levels.split(',')]
+    
+    adapter.register_service_webhook(
+        service_id=service_id,
+        webhook_url=webhook_url,
+        username=username,
+        avatar_url=avatar_url,
+        notification_levels=notification_levels
+    )
+    
+    click.echo(f"Discord webhook registered for service {service_id}")
+    if notification_levels:
+        click.echo(f"Notification levels: {', '.join(notification_levels)}")
+
+@discord.command()
+@click.option('--service-id', required=True, help='Service ID to remove webhook for')
+def unregister(service_id):
+    """Remove a Discord webhook for a specific service."""
+    adapter = get_discord_adapter()
+    
+    if adapter.remove_service_webhook(service_id):
+        click.echo(f"Discord webhook removed for service {service_id}")
+    else:
+        click.echo(f"No Discord webhook found for service {service_id}")
+
+@discord.command()
+@click.option('--service-id', help='Service ID to get webhook config for (optional)')
+def list(service_id):
+    """List Discord webhook configurations."""
+    adapter = get_discord_adapter()
+    
+    if service_id:
+        config = adapter.get_service_webhook_config(service_id)
+        if config:
+            click.echo(f"Discord webhook configuration for service {service_id}:")
+            click.echo(f"  Webhook URL: {config['webhook_url']}")
+            click.echo(f"  Username: {config['username']}")
+            if config.get('avatar_url'):
+                click.echo(f"  Avatar URL: {config['avatar_url']}")
+            click.echo(f"  Notification levels: {', '.join(config['notification_levels'])}")
+        else:
+            click.echo(f"No Discord webhook configuration found for service {service_id}")
+    else:
+        webhooks = adapter.list_service_webhooks()
+        if webhooks:
+            click.echo("Service-specific Discord webhook configurations:")
+            for service_id, config in webhooks.items():
+                click.echo(f"\nService ID: {service_id}")
+                click.echo(f"  Webhook URL: {config['webhook_url']}")
+                click.echo(f"  Username: {config['username']}")
+                if config.get('avatar_url'):
+                    click.echo(f"  Avatar URL: {config['avatar_url']}")
+                click.echo(f"  Notification levels: {', '.join(config['notification_levels'])}")
+        else:
+            click.echo("No service-specific Discord webhook configurations found")
+        
+        # Also show default webhook if configured
+        if adapter.webhook_url:
+            click.echo("\nDefault Discord webhook configuration:")
+            click.echo(f"  Webhook URL: {adapter.webhook_url}")
+            click.echo(f"  Username: {adapter.username}")
+            if adapter.avatar_url:
+                click.echo(f"  Avatar URL: {adapter.avatar_url}")
+        else:
+            click.echo("\nNo default Discord webhook configured")
+
+@discord.command()
+@click.option('--service-id', required=True, help='Service ID to test notification for')
+@click.option('--level', type=click.Choice(['info', 'success', 'warning', 'error']), default='info', 
+              help='Notification level')
+@click.option('--message', default='Test notification from Laneswap CLI', help='Custom message')
+def test(service_id, level, message):
+    """Test a Discord webhook notification for a service."""
+    adapter = get_discord_adapter()
+    
+    async def run_test():
+        # Get service info
+        try:
+            service_info = await get_service(service_id)
+            
+            # Send test notification
+            success = await adapter.send_notification(
+                title=f"Test Notification - {service_info.get('name', service_id)}",
+                message=message,
+                service_info=service_info,
+                level=level
+            )
+            
+            if success:
+                click.echo(f"Test notification sent successfully to Discord for service {service_id}")
+            else:
+                click.echo(f"Failed to send test notification to Discord for service {service_id}")
+                
+        except Exception as e:
+            click.echo(f"Error testing Discord notification: {str(e)}")
+    
+    asyncio.run(run_test())
+
 def main():
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(description="LaneSwap CLI")
@@ -504,6 +646,16 @@ def main():
         asyncio.run(check_servers())
     elif args.command == "start_monitor":
         asyncio.run(start_monitor())
+    elif args.command == "discord_setup":
+        asyncio.run(setup(args.webhook_url, args.username, args.avatar_url))
+    elif args.command == "discord_register":
+        asyncio.run(register(args.service_id, args.webhook_url, args.username, args.avatar_url, args.levels))
+    elif args.command == "discord_unregister":
+        asyncio.run(unregister(args.service_id))
+    elif args.command == "discord_list":
+        asyncio.run(list(args.service_id))
+    elif args.command == "discord_test":
+        asyncio.run(test(args.service_id, args.level, args.message))
     else:
         parser.print_help()
 

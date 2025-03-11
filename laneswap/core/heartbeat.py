@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 
 from .exceptions import ServiceNotFoundError
 from .types import HeartbeatStatus
+from .config import get_settings
 
 # Import models
 from ..models.heartbeat import HeartbeatEvent
@@ -29,12 +30,13 @@ _storage: Optional[StorageAdapter] = None
 _check_interval: int = 30
 _stale_threshold: int = 60
 _monitor_task = None
+_manager_instance = None
 
 async def initialize(
     notifiers: Optional[List[NotifierAdapter]] = None,
     storage: Optional[StorageAdapter] = None,
-    check_interval: int = 30,
-    stale_threshold: int = 60
+    check_interval: Optional[int] = None,
+    stale_threshold: Optional[int] = None
 ) -> None:
     """
     Initialize the heartbeat system.
@@ -45,22 +47,25 @@ async def initialize(
         check_interval: Interval in seconds to check for stale heartbeats
         stale_threshold: Time in seconds after which a heartbeat is considered stale
     """
-    global _notifiers, _storage, _check_interval, _stale_threshold
+    # Get the manager
+    manager = get_manager()
     
-    _notifiers = notifiers or []
-    _storage = storage
-    _check_interval = check_interval
-    _stale_threshold = stale_threshold
+    # Add notifiers
+    if notifiers:
+        for notifier in notifiers:
+            manager.add_notifier_adapter(notifier)
     
-    # Connect to storage if provided
-    if _storage:
-        try:
-            await _storage.connect()
-        except Exception as e:
-            logger.error(f"Failed to connect to storage: {str(e)}")
+    # Set storage
+    if storage:
+        manager.add_storage_adapter(storage)
     
-    # Start the monitor task
-    await start_monitor()
+    # Start the monitor if it's not already running
+    if not manager.monitor_task or manager.monitor_task.done():
+        await manager.start_monitor(check_interval, stale_threshold)
+    else:
+        logger.info("Heartbeat monitor is already running")
+    
+    logger.debug("Heartbeat system initialized")
 
 async def register_service(
     service_name: str, 
@@ -71,42 +76,18 @@ async def register_service(
     Register a new service to be monitored.
     
     Args:
-        service_name: Human-readable name for the service
-        service_id: Optional unique identifier for the service (generated if not provided)
-        metadata: Additional information about the service
+        service_name: Name of the service
+        service_id: Optional service ID (will be generated if not provided)
+        metadata: Optional metadata for the service
         
     Returns:
-        service_id: The registered service ID
+        str: Service ID
     """
-    global _services
+    # Get the manager
+    manager = get_manager()
     
-    if not service_id:
-        service_id = str(uuid.uuid4())
-        
-    _services[service_id] = {
-        "id": service_id,
-        "name": service_name,
-        "status": HeartbeatStatus.UNKNOWN,
-        "last_heartbeat": None,
-        "metadata": metadata or {},
-        "events": []
-    }
-    
-    event = HeartbeatEvent(
-        timestamp=datetime.utcnow(),
-        status=HeartbeatStatus.UNKNOWN,
-        message=f"Service {service_name} registered"
-    )
-    
-    _services[service_id]["events"].append(event.dict())
-    
-    if _storage:
-        await _storage.store_heartbeat(service_id, _services[service_id])
-        
-    if _monitor_task is None:
-        await start_monitor()
-        
-    return service_id
+    # Register the service
+    return await manager.register_service(service_name, service_id, metadata)
 
 async def send_heartbeat(
     service_id: str, 
@@ -118,159 +99,70 @@ async def send_heartbeat(
     Update the heartbeat status for a service.
     
     Args:
-        service_id: The service identifier
-        status: Current health status
-        message: Optional message with the heartbeat
-        metadata: Additional data to include
+        service_id: Service ID
+        status: Service status
+        message: Optional status message
+        metadata: Optional metadata to update
         
     Returns:
-        Dict with the updated service status
+        Dict[str, Any]: Updated service information
+        
+    Raises:
+        ServiceNotFoundError: If the service is not found
     """
-    global _services, _notifiers, _storage
+    # Get the manager
+    manager = get_manager()
     
-    if service_id not in _services:
-        raise ServiceNotFoundError(f"Service with ID {service_id} not registered")
-        
-    now = datetime.utcnow()
-    previous_status = _services[service_id]["status"]
-    
-    # Create heartbeat event
-    event = HeartbeatEvent(
-        timestamp=now,
-        status=status,
-        message=message or f"Heartbeat received with status {status.value}",
-        metadata=metadata
-    )
-    
-    # Update service information
-    _services[service_id].update({
-        "status": status,
-        "last_heartbeat": now,
-        "last_message": message,
-    })
-    
-    if metadata:
-        _services[service_id]["metadata"].update(metadata)
-        
-    # Keep only the last 100 events
-    _services[service_id]["events"].append(event.dict())
-    _services[service_id]["events"] = _services[service_id]["events"][-100:]
-    
-    # Persist to storage
-    if _storage:
-        await _storage.store_heartbeat(service_id, _services[service_id])
-        
-    # Send notifications if status changed
-    if status != previous_status:
-        status_change_message = (
-            f"Service '{_services[service_id]['name']}' "
-            f"status changed from {previous_status.value} to {status.value}"
-        )
-        
-        # Only notify for non-healthy statuses or recovery to healthy
-        if status != HeartbeatStatus.HEALTHY or previous_status != HeartbeatStatus.HEALTHY:
-            for notifier in _notifiers:
-                try:
-                    await notifier.send_notification(
-                        title=f"Service Status Change: {_services[service_id]['name']}",
-                        message=status_change_message,
-                        service_info=_services[service_id],
-                        level="warning" if status != HeartbeatStatus.HEALTHY else "info"
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to send notification: {str(e)}")
-                    if _storage:
-                        error_log = ErrorLog(
-                            timestamp=datetime.utcnow(),
-                            service_id=service_id,
-                            error_type="notification_failure",
-                            message=f"Failed to send notification: {str(e)}",
-                            traceback=None,
-                            metadata={"notifier": notifier.__class__.__name__}
-                        )
-                        await _storage.store_error(error_log.dict())
-    
-    return _services[service_id]
+    # Send the heartbeat
+    return await manager.send_heartbeat(service_id, status, message, metadata)
 
 async def get_service(service_id: str) -> Dict[str, Any]:
     """
     Get the current status of a service.
     
     Args:
-        service_id: The service identifier
+        service_id: Service ID
         
     Returns:
-        Dict with the service status information
-    
-    Raises:
-        ServiceNotFoundError: If the service ID is not found
-    """
-    if service_id not in _services:
-        raise ServiceNotFoundError(f"Service with ID {service_id} not registered")
+        Dict[str, Any]: Service information
         
-    return _services[service_id]
+    Raises:
+        ServiceNotFoundError: If the service is not found
+    """
+    # Get the manager
+    manager = get_manager()
+    
+    # Get the service
+    return await manager.get_service(service_id)
 
 async def get_all_services() -> Dict[str, Dict[str, Any]]:
     """
-    Get status information for all registered services.
+    Get all registered services.
     
     Returns:
-        Dict mapping service IDs to their status information
+        Dict[str, Dict[str, Any]]: Dictionary mapping service IDs to service information
     """
-    return _services
+    # Get the manager
+    manager = get_manager()
+    
+    # Get all services
+    return await manager.get_all_services()
 
-async def _monitor_heartbeats():
-    """Background task to monitor service heartbeats and detect stale services."""
-    global _services, _check_interval, _stale_threshold
+async def start_monitor() -> None:
+    """Start the heartbeat monitor task."""
+    # Get the manager
+    manager = get_manager()
     
-    while True:
-        try:
-            now = datetime.utcnow()
-            
-            for service_id, service in _services.items():
-                if service["last_heartbeat"] is None:
-                    continue
-                    
-                # Check if heartbeat is stale
-                time_since_last = (now - service["last_heartbeat"]).total_seconds()
-                
-                if time_since_last > _stale_threshold and service["status"] != HeartbeatStatus.STALE:
-                    # Update service to stale status
-                    await send_heartbeat(
-                        service_id=service_id,
-                        status=HeartbeatStatus.STALE,
-                        message=f"No heartbeat received in {time_since_last:.1f} seconds"
-                    )
-            
-            await asyncio.sleep(_check_interval)
-        except Exception as e:
-            logger.error(f"Error in monitor task: {str(e)}")
-            await asyncio.sleep(_check_interval)
+    # Start the monitor
+    await manager.start_monitor()
 
-async def start_monitor():
-    """Start the background task to check for stale heartbeats."""
-    global _monitor_task
+async def stop_monitor() -> None:
+    """Stop the heartbeat monitor task."""
+    # Get the manager
+    manager = get_manager()
     
-    # If the monitor is already running, don't start another one
-    if _monitor_task and not _monitor_task.done() and not _monitor_task.cancelled():
-        logger.debug("Heartbeat monitor already running")
-        return
-    
-    # Create a new monitor task
-    _monitor_task = asyncio.create_task(_monitor_heartbeats())
-    logger.debug("Heartbeat monitor started")
-
-async def stop_monitor():
-    """Stop the background monitoring task."""
-    global _monitor_task
-    
-    if _monitor_task and not _monitor_task.done():
-        _monitor_task.cancel()
-        try:
-            await _monitor_task
-        except asyncio.CancelledError:
-            pass
-        _monitor_task = None
+    # Stop the monitor
+    await manager.stop_monitor()
 
 @asynccontextmanager
 async def heartbeat_system(
@@ -292,7 +184,10 @@ async def heartbeat_system(
     try:
         yield
     finally:
-        await stop_monitor()
+        try:
+            await stop_monitor()
+        except Exception as e:
+            logger.warning(f"Error stopping heartbeat monitor during cleanup: {str(e)}")
 
 def with_heartbeat(
     service_id: str,
@@ -463,38 +358,166 @@ async def generate_monitor_url(
     
     return url
 
-# Compatibility layer for code that expects the HeartbeatManager class
 class HeartbeatManager:
-    """
-    Compatibility class for backward compatibility.
-    This class wraps the functional API to maintain compatibility with code
-    that expects the HeartbeatManager class.
-    """
+    """Manager for heartbeat monitoring."""
     
     def __init__(
         self,
         notifiers: Optional[List[NotifierAdapter]] = None,
         storage: Optional[StorageAdapter] = None,
-        check_interval: int = 30,
-        stale_threshold: int = 60
+        check_interval: Optional[int] = None,
+        stale_threshold: Optional[int] = None
     ):
-        """Initialize the heartbeat manager."""
-        self.notifiers = notifiers or []
+        """
+        Initialize the heartbeat manager.
+        
+        Args:
+            notifiers: List of notification adapters
+            storage: Storage adapter for persistence
+            check_interval: Interval in seconds to check for stale heartbeats
+            stale_threshold: Time in seconds after which a heartbeat is considered stale
+        """
+        # Get settings
+        settings = get_settings()
+        
+        self.services: Dict[str, Dict[str, Any]] = {}
+        self.notifiers: List[NotifierAdapter] = notifiers or []
         self.storage = storage
-        self.check_interval = check_interval
-        self.stale_threshold = stale_threshold
-        self._initialized = False
+        self.check_interval = check_interval or settings.heartbeat.check_interval
+        self.stale_threshold = stale_threshold or settings.heartbeat.stale_threshold
+        self.monitor_task = None
+        
+        logger.debug(f"HeartbeatManager initialized with check_interval={self.check_interval}, stale_threshold={self.stale_threshold}")
     
-    async def _ensure_initialized(self):
-        """Ensure the heartbeat system is initialized."""
-        if not self._initialized:
-            await initialize(
-                notifiers=self.notifiers,
-                storage=self.storage,
-                check_interval=self.check_interval,
-                stale_threshold=self.stale_threshold
-            )
-            self._initialized = True
+    def add_notifier_adapter(self, adapter: NotifierAdapter) -> None:
+        """
+        Add a notifier adapter to the manager.
+        
+        Args:
+            adapter: Notifier adapter to add
+        """
+        if adapter not in self.notifiers:
+            self.notifiers.append(adapter)
+            logger.debug(f"Added notifier adapter: {adapter.__class__.__name__}")
+    
+    def add_storage_adapter(self, adapter: StorageAdapter) -> None:
+        """
+        Set the storage adapter for the manager.
+        
+        Args:
+            adapter: Storage adapter to set
+        """
+        self.storage = adapter
+        logger.debug(f"Set storage adapter: {adapter.__class__.__name__}")
+    
+    async def start_monitor(self, check_interval: Optional[int] = None, stale_threshold: Optional[int] = None) -> None:
+        """
+        Start the heartbeat monitor task.
+        
+        Args:
+            check_interval: Interval in seconds to check for stale heartbeats
+            stale_threshold: Time in seconds after which a heartbeat is considered stale
+        """
+        # Update intervals if provided
+        if check_interval is not None:
+            self.check_interval = check_interval
+        if stale_threshold is not None:
+            self.stale_threshold = stale_threshold
+            
+        # Stop existing monitor if running
+        if self.monitor_task and not self.monitor_task.done():
+            try:
+                await self.stop_monitor()
+            except Exception as e:
+                logger.warning(f"Error stopping existing monitor: {str(e)}")
+                # Reset the monitor task if we couldn't stop it properly
+                self.monitor_task = None
+            
+        # Start the monitor task
+        self.monitor_task = asyncio.create_task(self._monitor_heartbeats())
+        logger.info(f"Started heartbeat monitor (check_interval={self.check_interval}s, stale_threshold={self.stale_threshold}s)")
+    
+    async def stop_monitor(self) -> None:
+        """Stop the heartbeat monitor task."""
+        if self.monitor_task and not self.monitor_task.done():
+            self.monitor_task.cancel()
+            try:
+                # Check if the task is in the current event loop
+                current_loop = asyncio.get_running_loop()
+                task_loop = self.monitor_task._loop
+                
+                if current_loop is task_loop:
+                    # Only await the task if it's in the current event loop
+                    await self.monitor_task
+                else:
+                    # If task is in a different loop, just cancel and don't await
+                    logger.warning("Monitor task is in a different event loop, cannot await cancellation")
+            except asyncio.CancelledError:
+                pass
+            except RuntimeError as e:
+                # Handle case where there's no running event loop
+                logger.warning(f"Error while stopping monitor: {str(e)}")
+            
+            self.monitor_task = None
+            logger.info("Stopped heartbeat monitor")
+    
+    async def _monitor_heartbeats(self) -> None:
+        """Background task to monitor heartbeats and detect stale services."""
+        try:
+            while True:
+                await self._check_heartbeats()
+                await asyncio.sleep(self.check_interval)
+        except asyncio.CancelledError:
+            logger.debug("Heartbeat monitor task cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Error in heartbeat monitor: {str(e)}", exc_info=True)
+    
+    async def _check_heartbeats(self) -> None:
+        """Check all services for stale heartbeats."""
+        now = datetime.now()
+        stale_threshold = timedelta(seconds=self.stale_threshold)
+        
+        # Copy services to avoid modification during iteration
+        services = self.services.copy()
+        
+        for service_id, service in services.items():
+            # Skip services that are already marked as stale
+            if service.get("status") == "stale":
+                continue
+                
+            # Check if the service has a last_heartbeat
+            last_heartbeat = service.get("last_heartbeat")
+            if not last_heartbeat:
+                continue
+                
+            # Convert string to datetime if needed
+            if isinstance(last_heartbeat, str):
+                try:
+                    last_heartbeat = datetime.fromisoformat(last_heartbeat.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+            
+            # Check if the heartbeat is stale
+            if now - last_heartbeat > stale_threshold:
+                # Update service status to stale
+                service["status"] = "stale"
+                service["status_message"] = f"No heartbeat received in {self.stale_threshold} seconds"
+                self.services[service_id] = service
+                
+                # Send notifications
+                for notifier in self.notifiers:
+                    try:
+                        await notifier.send_notification(
+                            title=f"Service Stale: {service.get('name', service_id)}",
+                            message=f"No heartbeat received in {self.stale_threshold} seconds",
+                            service_info=service,
+                            level="warning"
+                        )
+                    except Exception as e:
+                        logger.error(f"Error sending stale notification: {str(e)}")
+                
+                logger.warning(f"Service {service_id} ({service.get('name', 'Unknown')}) marked as stale")
     
     async def register_service(
         self, 
@@ -502,9 +525,66 @@ class HeartbeatManager:
         service_id: Optional[str] = None, 
         metadata: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Register a new service to be monitored."""
-        await self._ensure_initialized()
-        return await register_service(service_name, service_id, metadata)
+        """
+        Register a new service to be monitored.
+        
+        Args:
+            service_name: Name of the service
+            service_id: Optional service ID (will be generated if not provided)
+            metadata: Optional metadata for the service
+            
+        Returns:
+            str: Service ID
+        """
+        # Generate service ID if not provided
+        if not service_id:
+            service_id = str(uuid.uuid4())
+            
+        # Create service record
+        now = datetime.now()
+        service = {
+            "id": service_id,
+            "name": service_name,
+            "status": "unknown",
+            "status_message": "Service registered",
+            "last_heartbeat": None,
+            "metadata": metadata or {},
+            "created_at": now,
+            "updated_at": now,
+            "events": [
+                {
+                    "type": "registration",
+                    "timestamp": now,
+                    "status": "unknown",
+                    "message": "Service registered"
+                }
+            ]
+        }
+        
+        # Store service
+        self.services[service_id] = service
+        
+        # Store in persistent storage if available
+        if self.storage:
+            try:
+                await self.storage.store_heartbeat(service_id, service)
+            except Exception as e:
+                logger.error(f"Error storing service registration: {str(e)}")
+        
+        # Send notifications
+        for notifier in self.notifiers:
+            try:
+                await notifier.send_notification(
+                    title=f"Service Registered: {service_name}",
+                    message=f"Service {service_name} registered with ID {service_id}",
+                    service_info=service,
+                    level="info"
+                )
+            except Exception as e:
+                logger.error(f"Error sending registration notification: {str(e)}")
+        
+        logger.info(f"Service registered: {service_name} (ID: {service_id})")
+        return service_id
     
     async def send_heartbeat(
         self, 
@@ -513,32 +593,167 @@ class HeartbeatManager:
         message: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Update the heartbeat status for a service."""
-        await self._ensure_initialized()
-        return await send_heartbeat(service_id, status, message, metadata)
+        """
+        Update the heartbeat status for a service.
+        
+        Args:
+            service_id: Service ID
+            status: Service status
+            message: Optional status message
+            metadata: Optional metadata to update
+            
+        Returns:
+            Dict[str, Any]: Updated service information
+            
+        Raises:
+            ServiceNotFoundError: If the service is not found
+        """
+        # Check if service exists
+        if service_id not in self.services:
+            raise ServiceNotFoundError(f"Service not found: {service_id}")
+            
+        # Get service
+        service = self.services[service_id]
+        
+        # Convert status to string
+        status_str = status.value if isinstance(status, HeartbeatStatus) else str(status)
+        
+        # Get previous status for change detection
+        previous_status = service.get("status")
+        
+        # Update service
+        now = datetime.now()
+        service["status"] = status_str
+        service["status_message"] = message or f"Status updated to {status_str}"
+        service["last_heartbeat"] = now
+        service["updated_at"] = now
+        
+        # Update metadata if provided
+        if metadata:
+            if "metadata" not in service:
+                service["metadata"] = {}
+            service["metadata"].update(metadata)
+        
+        # Add event
+        event = {
+            "type": "heartbeat",
+            "timestamp": now,
+            "status": status_str,
+            "message": message or f"Status updated to {status_str}"
+        }
+        
+        if "events" not in service:
+            service["events"] = []
+        service["events"].append(event)
+        
+        # Limit events to last 100
+        if len(service["events"]) > 100:
+            service["events"] = service["events"][-100:]
+        
+        # Store updated service
+        self.services[service_id] = service
+        
+        # Store in persistent storage if available
+        if self.storage:
+            try:
+                await self.storage.store_heartbeat(service_id, service)
+            except Exception as e:
+                logger.error(f"Error storing heartbeat: {str(e)}")
+        
+        # Send notifications if status changed
+        if previous_status and previous_status != status_str:
+            for notifier in self.notifiers:
+                try:
+                    # Determine notification level based on status
+                    level = "info"
+                    if status_str == "warning":
+                        level = "warning"
+                    elif status_str == "error":
+                        level = "error"
+                    elif status_str == "healthy" and previous_status in ["warning", "error", "stale"]:
+                        level = "success"
+                    
+                    await notifier.send_notification(
+                        title=f"Service Status Change: {service.get('name', service_id)}",
+                        message=f"Status changed from {previous_status} to {status_str}" + 
+                                (f": {message}" if message else ""),
+                        service_info=service,
+                        level=level
+                    )
+                except Exception as e:
+                    logger.error(f"Error sending status change notification: {str(e)}")
+        
+        logger.debug(f"Heartbeat received for service {service_id}: {status_str}")
+        return service
     
     async def get_service(self, service_id: str) -> Dict[str, Any]:
-        """Get the current status of a service."""
-        await self._ensure_initialized()
-        return await get_service(service_id)
+        """
+        Get the current status of a service.
+        
+        Args:
+            service_id: Service ID
+            
+        Returns:
+            Dict[str, Any]: Service information
+            
+        Raises:
+            ServiceNotFoundError: If the service is not found
+        """
+        # Check if service exists
+        if service_id not in self.services:
+            # Try to get from storage if available
+            if self.storage:
+                try:
+                    service = await self.storage.get_heartbeat(service_id)
+                    if service:
+                        return service
+                except Exception as e:
+                    logger.error(f"Error retrieving service from storage: {str(e)}")
+            
+            raise ServiceNotFoundError(f"Service not found: {service_id}")
+            
+        return self.services[service_id]
     
-    async def get_all_services(self) -> Dict[str, Any]:
-        """Get all registered services."""
-        await self._ensure_initialized()
-        return await get_all_services()
-    
-    async def start_monitor(self):
-        """Start the heartbeat monitor task."""
-        await self._ensure_initialized()
-        # The monitor is started automatically during initialization
-    
-    async def stop_monitor(self):
-        """Stop the background monitoring task."""
-        if self._initialized:
-            await stop_monitor()
-            self._initialized = False
+    async def get_all_services(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all registered services.
+        
+        Returns:
+            Dict[str, Dict[str, Any]]: Dictionary mapping service IDs to service information
+        """
+        # If storage is available, try to get all services from storage
+        if self.storage:
+            try:
+                services = await self.storage.get_all_heartbeats()
+                # Update in-memory services
+                self.services.update(services)
+            except Exception as e:
+                logger.error(f"Error retrieving services from storage: {str(e)}")
+        
+        return self.services
 
-# For backward compatibility
-def get_manager() -> HeartbeatManager:
-    """Get or create the default heartbeat manager instance."""
-    return HeartbeatManager()
+def get_manager() -> Optional[HeartbeatManager]:
+    """
+    Get the global heartbeat manager instance.
+    
+    Returns:
+        Optional[HeartbeatManager]: The global heartbeat manager instance, or None if not initialized
+    """
+    global _manager_instance
+    
+    if _manager_instance is None:
+        # Create a new manager instance
+        _manager_instance = HeartbeatManager()
+        
+        # Initialize with global state if available
+        if _notifiers:
+            for notifier in _notifiers:
+                _manager_instance.add_notifier_adapter(notifier)
+        
+        if _storage:
+            _manager_instance.add_storage_adapter(_storage)
+        
+        if _services:
+            _manager_instance.services = _services.copy()
+    
+    return _manager_instance

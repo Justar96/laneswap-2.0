@@ -1,12 +1,9 @@
-from .commands import start_server, monitor_link
+"""Main entry point for the LaneSwap CLI."""
 
-@click.group()
-def cli():
-    """LaneSwap CLI tools."""
-    pass
+from .commands import cli
+from .service_commands import service
 
-cli.add_command(start_server)
-cli.add_command(monitor_link)
+cli.add_command(service)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     cli() 

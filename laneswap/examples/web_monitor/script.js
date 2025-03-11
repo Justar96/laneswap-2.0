@@ -13,7 +13,8 @@ const state = {
   focusedServiceId: null,
   searchDebounceTimer: null,
   isSidebarExpanded: true,
-  currentLanguage: 'en'
+  currentLanguage: 'en',
+  notificationsEnabled: false
 };
 
 // ===== DOM ELEMENTS =====
@@ -35,7 +36,8 @@ const elements = {
   themeToggleBtn: document.getElementById('themeToggleBtn'),
   dateFormatSelect: document.getElementById('dateFormatSelect'),
   saveSettingsBtn: document.getElementById('saveSettingsBtn'),
-  toastContainer: document.getElementById('toastContainer')
+  toastContainer: document.getElementById('toastContainer'),
+  notificationToggleBtn: document.getElementById('notificationToggleBtn')
 };
 
 // ===== LOCAL STORAGE HELPERS =====
@@ -71,8 +73,8 @@ function init() {
   elements.apiUrlInput.value = getStoredValue('laneswap-api-url', '');
   elements.refreshIntervalSelect.value = getStoredValue('laneswap-refresh-interval', '0');
   
-  state.viewMode = getStoredValue('laneswap-view-mode', 'grid');
-  updateViewMode();
+  // Initialize notification state
+  initializeNotifications();
   
   const savedTheme = getStoredValue('laneswap-theme', 'dark');
   elements.themeSelect.value = savedTheme;
@@ -106,16 +108,21 @@ function init() {
     appContainer.classList.add('sidebar-collapsed');
   }
   
-  // Initialize language after DOM is fully loaded
+  // Initialize language and enhanced monitoring after DOM is fully loaded
   document.addEventListener('DOMContentLoaded', () => {
     initializeLanguage();
+    // Add enhanced monitoring features after DOM is fully loaded
+    setTimeout(() => {
+      try {
+        addEnhancedMonitoring();
+      } catch (error) {
+        console.warn('Error adding enhanced monitoring:', error);
+      }
+    }, 100);
   });
   
   // Initialize theme
   initializeTheme();
-  
-  // Add enhanced monitoring features
-  addEnhancedMonitoring();
 }
 
 /**
@@ -170,8 +177,7 @@ function setupEventListeners() {
   elements.connectBtn.addEventListener('click', fetchServices);
   elements.refreshBtn.addEventListener('click', fetchServices);
   elements.refreshIntervalSelect.addEventListener('change', setRefreshInterval);
-  elements.viewGridBtn.addEventListener('click', () => setViewMode('grid'));
-  elements.viewTableBtn.addEventListener('click', () => setViewMode('table'));
+  elements.notificationToggleBtn.addEventListener('click', toggleNotifications);
   elements.searchInput.addEventListener('input', debounceSearch);
   elements.clearSearchBtn.addEventListener('click', clearSearch);
   elements.saveSettingsBtn.addEventListener('click', saveSettings);
@@ -193,29 +199,24 @@ function setupEventListeners() {
   // Add direct event listeners for settings and help links
   const settingsLinks = document.querySelectorAll('[data-bs-target="#settingsModal"]');
   settingsLinks.forEach(link => {
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      openSettingsModal();
-    });
+    link.addEventListener('click', openSettingsModal);
   });
   
   const helpLinks = document.querySelectorAll('[data-bs-target="#helpModal"]');
   helpLinks.forEach(link => {
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      openHelpModal();
-    });
+    link.addEventListener('click', openHelpModal);
   });
   
-  // Close sidebar when clicking outside on mobile
-  document.addEventListener('click', handleOutsideClick);
+  // Add click handler for outside sidebar clicks (mobile)
+  document.querySelector('.sidebar-overlay').addEventListener('click', handleOutsideClick);
   
-  // Sidebar toggle
-  elements.sidebarToggle.addEventListener('click', toggleSidebar);
-  document.querySelector('.sidebar-overlay')?.addEventListener('click', toggleSidebar);
-  
-  // Theme toggle
-  setupThemeToggle();
+  // Add keyboard shortcut for refresh (F5)
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'F5') {
+      e.preventDefault();
+      fetchServices();
+    }
+  });
 }
 
 /**
@@ -225,7 +226,7 @@ function setupEventListeners() {
 function handleOutsideClick(e) {
   const screenWidth = window.innerWidth;
   if (screenWidth <= 768 && 
-      elements.sidebar.classList.contains('open') && 
+      document.querySelector('.app-container').classList.contains('sidebar-expanded') && 
       !elements.sidebar.contains(e.target) && 
       e.target !== elements.sidebarToggle) {
     toggleSidebar();
@@ -257,10 +258,18 @@ function handleUrlParameters() {
  * Handle window resize events
  */
 function handleResize() {
-  // Close sidebar on mobile when window is resized
   const screenWidth = window.innerWidth;
-  if (screenWidth <= 768 && elements.sidebar.classList.contains('open')) {
-    elements.sidebar.classList.remove('open');
+  const appContainer = document.querySelector('.app-container');
+  
+  // Close sidebar on mobile when window is resized
+  if (screenWidth <= 768 && appContainer.classList.contains('sidebar-expanded')) {
+    toggleSidebar();
+  }
+  
+  // Reset sidebar on desktop
+  if (screenWidth > 768) {
+    appContainer.classList.remove('sidebar-collapsed');
+    appContainer.classList.add('sidebar-expanded');
   }
 }
 
@@ -269,21 +278,23 @@ function handleResize() {
  * Toggle sidebar visibility
  */
 function toggleSidebar() {
-    const appContainer = document.querySelector('.app-container');
-    
-    if (appContainer.classList.contains('sidebar-expanded')) {
-      appContainer.classList.remove('sidebar-expanded');
-      appContainer.classList.add('sidebar-collapsed');
-      state.isSidebarExpanded = false;
-    } else {
-      appContainer.classList.remove('sidebar-collapsed');
-      appContainer.classList.add('sidebar-expanded');
-      state.isSidebarExpanded = true;
-    }
-    
-    // Store preference
+  const appContainer = document.querySelector('.app-container');
+  
+  if (appContainer.classList.contains('sidebar-expanded')) {
+    appContainer.classList.remove('sidebar-expanded');
+    appContainer.classList.add('sidebar-collapsed');
+    state.isSidebarExpanded = false;
+  } else {
+    appContainer.classList.remove('sidebar-collapsed');
+    appContainer.classList.add('sidebar-expanded');
+    state.isSidebarExpanded = true;
+  }
+  
+  // Store preference (only on desktop)
+  if (window.innerWidth > 768) {
     localStorage.setItem('sidebar-expanded', state.isSidebarExpanded);
   }
+}
 
 /**
  * Toggle between light and dark themes
@@ -307,7 +318,7 @@ function toggleTheme() {
   storeValue('laneswap-theme', newTheme);
   
   // Show feedback
-  showToast(`Theme changed to ${newTheme} mode`, 'success');
+  showToast(`Theme changed to ${newTheme} mode`, 'success', 3000, true);
 }
 
 /**
@@ -382,9 +393,9 @@ function setRefreshInterval() {
   // Set new interval if not manual
   if (interval > 0) {
     state.refreshInterval = setInterval(fetchServices, interval * 1000);
-    showToast(`Auto-refresh set to ${interval} seconds`, 'success');
+    showToast(`Auto-refresh set to ${interval} seconds`, 'success', 3000, true);
   } else {
-    showToast('Auto-refresh disabled', 'info');
+    showToast('Auto-refresh disabled', 'info', 3000, true);
   }
 }
 
@@ -480,7 +491,7 @@ function saveSettings() {
   // Update UI
   updateServicesUI();
   
-  showToast('Settings saved successfully', 'success');
+  showToast('Settings saved successfully', 'success', 3000, true);
 }
 
 // ===== NOTIFICATIONS =====
@@ -489,8 +500,12 @@ function saveSettings() {
  * @param {string} message - The message to display
  * @param {string} type - The type of toast (success, error, warning, info)
  * @param {number} duration - How long to show the toast in ms
+ * @param {boolean} forceShow - Whether to show the toast even if notifications are disabled
  */
-function showToast(message, type = 'info', duration = 3000) {
+function showToast(message, type = 'info', duration = 3000, forceShow = false) {
+  // Don't show toast if notifications are disabled, unless forceShow is true
+  if (!state.notificationsEnabled && !forceShow) return;
+
   const toastContainer = document.getElementById('toastContainer');
   if (!toastContainer) return;
   
@@ -635,21 +650,27 @@ function updateLastUpdated() {
  * @param {boolean} isError - Whether this is an error state
  */
 function showError(message, isError = true) {
-  elements.servicesList.innerHTML = `
-    <div class="${isError ? 'error-state' : 'empty-state'}">
-      <span class="material-symbols-rounded ${isError ? 'error-icon' : 'empty-icon'}">
-        ${isError ? 'error' : 'search_off'}
-      </span>
-      <p>${message}</p>
-    </div>
-  `;
+  if (elements.servicesList) {
+    elements.servicesList.innerHTML = `
+      <div class="${isError ? 'error-state' : 'empty-state'}">
+        <span class="material-symbols-rounded ${isError ? 'error-icon' : 'empty-icon'}">
+          ${isError ? 'error' : 'search_off'}
+        </span>
+        <p>${message}</p>
+      </div>
+    `;
+  }
   
-  // Reset summary counts
-  resetSummaryCounts();
+  // Reset summary counts - safely
+  try {
+    resetSummaryCounts();
+  } catch (error) {
+    console.warn('Error resetting summary counts:', error);
+  }
   
   // Show error toast for error states
   if (isError) {
-    showToast(message, 'error', 5000);
+    showToast(message, 'error', 5000, true); // Force show error toasts
   }
 }
 
@@ -659,7 +680,10 @@ function showError(message, isError = true) {
 function resetSummaryCounts() {
   const countElements = ['healthyCount', 'warningCount', 'errorCount', 'staleCount', 'totalCount'];
   countElements.forEach(id => {
-    document.getElementById(id).textContent = '0';
+    const element = document.getElementById(id);
+    if (element) {
+      element.textContent = '0';
+    }
   });
 }
 
@@ -1014,6 +1038,18 @@ async function fetchServices() {
     
     // Handle the specific format from the API
     if (data && data.services) {
+      // Track status changes for notifications
+      if (state.services) {
+        // Check for status changes in existing services
+        Object.entries(data.services).forEach(([id, service]) => {
+          const existingService = state.services[id];
+          if (existingService && existingService.status !== service.status) {
+            // Service status has changed, trigger notification
+            showServiceNotification(service, existingService.status.toLowerCase());
+          }
+        });
+      }
+      
       state.services = data.services;
       updateServicesUI();
       updateSummaryUI(data.summary);
@@ -1043,36 +1079,43 @@ async function fetchServices() {
 
 // ===== UI RENDERING =====
 /**
- * Update the services UI based on the current view mode and search filter
+ * Update the services UI based on the current search filter
  */
 function updateServicesUI() {
-  // Get search filter
-  const searchFilter = elements.searchInput.value.toLowerCase();
-  
-  // Filter services based on search
-  const filteredServices = Object.entries(state.services).filter(([id, service]) => {
-    const searchString = `${id} ${service.name} ${service.status} ${service.message || ''}`.toLowerCase();
-    return searchString.includes(searchFilter);
-  });
-  
-  // Check if we have any services
-  if (filteredServices.length === 0) {
-    showError(getTranslation('noServices'), false);
-    return;
-  }
-  
-  // Sort services by status (error first, then warning, then stale, then healthy)
-  const statusOrder = { 'error': 0, 'warning': 1, 'stale': 2, 'healthy': 3 };
-  
-  filteredServices.sort(([, a], [, b]) => {
-    return (statusOrder[a.status.toLowerCase()] || 4) - (statusOrder[b.status.toLowerCase()] || 4);
-  });
-  
-  // Render services based on view mode
-  if (state.viewMode === 'grid') {
+  try {
+    // Get search filter
+    const searchFilter = elements.searchInput.value.toLowerCase();
+    
+    // Filter services based on search
+    const filteredServices = Object.entries(state.services || {}).filter(([id, service]) => {
+      const searchString = `${id} ${service.name} ${service.status} ${service.message || ''}`.toLowerCase();
+      return searchString.includes(searchFilter);
+    });
+    
+    // If no services found after filtering
+    if (filteredServices.length === 0) {
+      if (searchFilter) {
+        // No results for search
+        showError(getTranslation('noSearchResults'), false);
+      } else {
+        // No services at all
+        showError(getTranslation('noServices'), false);
+      }
+      return;
+    }
+    
+    // Sort services by status (error first, then warning, then stale, then healthy)
+    const statusOrder = { 'error': 0, 'warning': 1, 'stale': 2, 'healthy': 3 };
+    
+    filteredServices.sort(([, a], [, b]) => {
+      return (statusOrder[a.status.toLowerCase()] || 4) - (statusOrder[b.status.toLowerCase()] || 4);
+    });
+    
+    // Render services in grid view
     renderGridView(filteredServices);
-  } else {
-    renderTableView(filteredServices);
+  } catch (error) {
+    console.error('Error updating services UI:', error);
+    showError(`${getTranslation('error')}: ${error.message}`);
   }
 }
 
@@ -1549,12 +1592,6 @@ function updateThemeToggleButton() {
   }
 }
 
-// Call this function during initialization
-document.addEventListener('DOMContentLoaded', initializeTheme);
-
-// Initialize the app when the DOM is loaded
-document.addEventListener('DOMContentLoaded', init);
-
 /**
  * Render service card for grid view
  * @param {Object} service - Service data
@@ -1768,7 +1805,7 @@ function ensureRequiredElements() {
     console.warn('Services container not found, creating one');
     const servicesContainer = document.createElement('div');
     servicesContainer.id = 'servicesList';
-    servicesContainer.className = 'services-container';
+    servicesContainer.className = 'services-container grid-view';
     mainContent.appendChild(servicesContainer);
   }
   
@@ -1782,16 +1819,57 @@ function ensureRequiredElements() {
     body.appendChild(toastContainer);
   }
   
+  // Ensure notification toggle button exists
+  if (!document.getElementById('notificationToggleBtn')) {
+    console.warn('Notification toggle button not found');
+    const headerControls = document.querySelector('.header-controls');
+    if (headerControls) {
+      const notificationControls = document.createElement('div');
+      notificationControls.className = 'btn-group notification-controls';
+      
+      const notificationBtn = document.createElement('button');
+      notificationBtn.id = 'notificationToggleBtn';
+      notificationBtn.className = 'btn notification-btn';
+      notificationBtn.setAttribute('aria-label', 'Toggle notifications');
+      
+      const icon = document.createElement('span');
+      icon.className = 'material-symbols-rounded';
+      icon.textContent = 'notifications_off';
+      
+      notificationBtn.appendChild(icon);
+      notificationControls.appendChild(notificationBtn);
+      headerControls.appendChild(notificationControls);
+    }
+  }
+  
+  // Ensure summary count elements exist
+  const countElements = ['healthyCount', 'warningCount', 'errorCount', 'staleCount', 'totalCount'];
+  const summaryContainer = document.querySelector('.monitoring-summary');
+  
+  if (summaryContainer) {
+    // Check if summary elements exist, create them if they don't
+    countElements.forEach(id => {
+      if (!document.getElementById(id)) {
+        console.warn(`Summary count element ${id} not found, creating one`);
+        const countElement = document.createElement('span');
+        countElement.id = id;
+        countElement.className = 'count-value';
+        countElement.textContent = '0';
+        
+        // Create a container for the count element if needed
+        const countContainer = document.createElement('div');
+        countContainer.className = `count-container ${id.replace('Count', '').toLowerCase()}`;
+        countContainer.appendChild(countElement);
+        
+        summaryContainer.appendChild(countContainer);
+      }
+    });
+  }
+  
   // Update elements object with any newly created elements
   elements.servicesList = document.getElementById('servicesList');
   elements.toastContainer = document.getElementById('toastContainer');
-  
-  // Also ensure view mode buttons exist
-  if (!elements.viewGridBtn) {
-    console.warn('View mode buttons not found');
-    elements.viewGridBtn = document.getElementById('viewGridBtn') || { classList: { add: () => {}, remove: () => {} } };
-    elements.viewTableBtn = document.getElementById('viewTableBtn') || { classList: { add: () => {}, remove: () => {} } };
-  }
+  elements.notificationToggleBtn = document.getElementById('notificationToggleBtn');
 }
 
 /**
@@ -2047,14 +2125,25 @@ function addEnhancedMonitoring() {
     </div>
   `;
   
-  // Add to main content
+  // Add to main content - safely
   const mainContent = document.querySelector('.main-content');
   if (mainContent) {
-    // Insert after the connection section
+    // Insert after the connection section if it exists
     const connectionSection = document.querySelector('.connection-section');
-    if (connectionSection && connectionSection.nextSibling) {
-      mainContent.insertBefore(metricsDashboard, connectionSection.nextSibling);
+    if (connectionSection) {
+      // Use appendChild if nextSibling doesn't exist or insertBefore otherwise
+      if (!connectionSection.nextSibling) {
+        mainContent.appendChild(metricsDashboard);
+      } else {
+        try {
+          mainContent.insertBefore(metricsDashboard, connectionSection.nextSibling);
+        } catch (error) {
+          console.warn('Could not insert metrics dashboard at specific position, appending instead', error);
+          mainContent.appendChild(metricsDashboard);
+        }
+      }
     } else {
+      // If connection section doesn't exist, just append to main content
       mainContent.appendChild(metricsDashboard);
     }
   }
@@ -2220,3 +2309,182 @@ function updateMetricChart(elementId, value, max) {
   
   chartElement.appendChild(progressBar);
 }
+
+/**
+ * Toggle notifications for services
+ */
+function toggleNotifications() {
+  state.notificationsEnabled = !state.notificationsEnabled;
+  storeValue('laneswap-notifications-enabled', state.notificationsEnabled);
+  updateNotificationToggle();
+  
+  if (state.notificationsEnabled) {
+    showToast('Notifications enabled for services', 'success', 3000, true);
+    // Request permission for notifications if needed
+    if (Notification && Notification.permission !== 'granted') {
+      Notification.requestPermission();
+    }
+  } else {
+    showToast('Notifications disabled for services', 'info', 3000, true);
+  }
+}
+
+/**
+ * Update the notification toggle button state
+ */
+function updateNotificationToggle() {
+  const notificationBtn = document.getElementById('notificationToggleBtn');
+  if (notificationBtn) {
+    if (state.notificationsEnabled) {
+      notificationBtn.classList.add('active');
+      notificationBtn.querySelector('.material-symbols-rounded').textContent = 'notifications_active';
+    } else {
+      notificationBtn.classList.remove('active');
+      notificationBtn.querySelector('.material-symbols-rounded').textContent = 'notifications_off';
+    }
+  }
+}
+
+/**
+ * Show a browser notification for a service status change
+ * @param {Object} service - The service that changed status
+ * @param {string} previousStatus - The previous status of the service
+ */
+function showServiceNotification(service, previousStatus) {
+  if (!state.notificationsEnabled || !service) return;
+  
+  // Only show notifications for status changes
+  if (service.status.toLowerCase() === previousStatus) return;
+  
+  // Check if browser notifications are supported and permission is granted
+  if (!("Notification" in window)) {
+    console.warn("This browser does not support desktop notifications");
+    return;
+  }
+  
+  if (Notification.permission === "granted") {
+    const statusText = service.status.charAt(0).toUpperCase() + service.status.slice(1).toLowerCase();
+    const notification = new Notification(`Service ${service.name} - ${statusText}`, {
+      body: service.message || `Status changed from ${previousStatus} to ${service.status.toLowerCase()}`,
+      icon: '/favicon.ico'
+    });
+    
+    // Close the notification after 5 seconds
+    setTimeout(() => {
+      notification.close();
+    }, 5000);
+  } else if (Notification.permission !== "denied") {
+    Notification.requestPermission().then(permission => {
+      if (permission === "granted") {
+        showServiceNotification(service, previousStatus);
+      }
+    });
+  }
+}
+
+// Initialize the app when the DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    init();
+  } catch (error) {
+    console.error('Error initializing app:', error);
+    // Try to show an error message even if initialization fails
+    const servicesList = document.getElementById('servicesList');
+    if (servicesList) {
+      servicesList.innerHTML = `
+        <div class="error-state">
+          <span class="material-symbols-rounded error-icon">error</span>
+          <p>Error initializing application: ${error.message}</p>
+        </div>
+      `;
+    }
+  }
+});
+
+/**
+ * Initialize the notification toggle
+ */
+function initializeNotifications() {
+  // Check if browser supports notifications
+  if (!("Notification" in window)) {
+    console.warn("This browser does not support desktop notifications");
+    // Hide the notification toggle button
+    const notificationBtn = document.getElementById('notificationToggleBtn');
+    if (notificationBtn) {
+      notificationBtn.style.display = 'none';
+    }
+    return;
+  }
+  
+  // Load saved notification preference
+  state.notificationsEnabled = getStoredValue('laneswap-notifications-enabled', 'false') === 'true';
+  
+  // Update the toggle button state
+  updateNotificationToggle();
+  
+  // If notifications are enabled, request permission if needed
+  if (state.notificationsEnabled && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+    Notification.requestPermission();
+  }
+}
+
+/**
+ * Handle touch events for sidebar swipe gestures
+ */
+let touchStartX = 0;
+let touchEndX = 0;
+let isSwiping = false;
+
+function handleTouchStart(e) {
+  touchStartX = e.touches[0].clientX;
+  isSwiping = true;
+}
+
+function handleTouchMove(e) {
+  if (!isSwiping) return;
+  
+  touchEndX = e.touches[0].clientX;
+  const touchDiff = touchEndX - touchStartX;
+  const screenWidth = window.innerWidth;
+  
+  // Only handle swipes within 20px of the screen edge or when sidebar is open
+  if (touchStartX > 20 && !document.querySelector('.app-container').classList.contains('sidebar-expanded')) {
+    return;
+  }
+  
+  // Prevent default scrolling when swiping from edge
+  if (touchStartX <= 20 || document.querySelector('.app-container').classList.contains('sidebar-expanded')) {
+    e.preventDefault();
+  }
+}
+
+function handleTouchEnd() {
+  if (!isSwiping) return;
+  
+  const touchDiff = touchEndX - touchStartX;
+  const screenWidth = window.innerWidth;
+  const appContainer = document.querySelector('.app-container');
+  
+  // Minimum swipe distance threshold (30px)
+  if (Math.abs(touchDiff) > 30) {
+    if (touchDiff > 0 && !appContainer.classList.contains('sidebar-expanded')) {
+      // Swipe right, open sidebar
+      toggleSidebar();
+    } else if (touchDiff < 0 && appContainer.classList.contains('sidebar-expanded')) {
+      // Swipe left, close sidebar
+      toggleSidebar();
+    }
+  }
+  
+  isSwiping = false;
+  touchStartX = 0;
+  touchEndX = 0;
+}
+
+// Add event listeners for touch events
+document.addEventListener('touchstart', handleTouchStart, { passive: false });
+document.addEventListener('touchmove', handleTouchMove, { passive: false });
+document.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+// Add click event listener for sidebar overlay
+document.querySelector('.sidebar-overlay').addEventListener('click', toggleSidebar);

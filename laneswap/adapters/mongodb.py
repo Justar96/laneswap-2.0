@@ -36,7 +36,64 @@ class MongoDBAdapter(StorageAdapter):
         self.errors_collection = errors_collection
         self.client = None
         self.db = None
+        self.heartbeats_collection_name = heartbeats_collection
+        self.errors_collection_name = errors_collection
+        self._initialized = False
         
+    async def initialize(self) -> None:
+        """
+        Initialize the MongoDB connection.
+        
+        This method must be called before using any other methods.
+        """
+        if self._initialized:
+            return
+            
+        try:
+            # Import motor here to avoid dependency issues
+            import motor.motor_asyncio
+            
+            # Create client
+            self.client = motor.motor_asyncio.AsyncIOMotorClient(
+                self.connection_string,
+                maxPoolSize=10,
+                minPoolSize=1,
+                maxIdleTimeMS=30000,
+                serverSelectionTimeoutMS=5000
+            )
+            
+            # Get database and collections
+            self.db = self.client[self.database_name]
+            self.heartbeats_collection = self.db[self.heartbeats_collection_name]
+            self.errors_collection = self.db[self.errors_collection_name]
+            
+            # Create indexes
+            await self.heartbeats_collection.create_index("id", unique=True)
+            await self.errors_collection.create_index("service_id")
+            await self.errors_collection.create_index("timestamp")
+            
+            self._initialized = True
+            logger.info(f"MongoDB adapter initialized: {self.database_name}")
+        except Exception as e:
+            logger.error(f"Failed to initialize MongoDB adapter: {str(e)}")
+            raise
+    
+    async def close(self) -> None:
+        """Close the MongoDB connection."""
+        if self.client:
+            self.client.close()
+            self.client = None
+            self.db = None
+            self.heartbeats_collection = None
+            self.errors_collection = None
+            self._initialized = False
+            logger.info("MongoDB connection closed")
+    
+    async def _ensure_initialized(self) -> None:
+        """Ensure the adapter is initialized."""
+        if not self._initialized:
+            await self.initialize()
+
     async def connect(self):
         """Establish connection to MongoDB with retry logic."""
         if self.client:
@@ -85,24 +142,25 @@ class MongoDBAdapter(StorageAdapter):
         Returns:
             bool: True if data was stored successfully
         """
-        if self.db is None:
-            await self.connect()
-            
+        await self._ensure_initialized()
+        
         try:
-            # Convert datetime objects to proper format
-            data_to_store = self._prepare_for_mongodb(heartbeat_data)
-            data_to_store["id"] = service_id
+            # Convert datetime objects to strings for MongoDB
+            heartbeat_data_copy = self._prepare_for_mongodb(heartbeat_data)
             
-            # Use upsert to create if not exists or update if exists
-            result = await self.db[self.heartbeats_collection].update_one(
+            # Ensure ID is set
+            heartbeat_data_copy["id"] = service_id
+            
+            # Upsert the document
+            result = await self.heartbeats_collection.replace_one(
                 {"id": service_id},
-                {"$set": data_to_store},
+                heartbeat_data_copy,
                 upsert=True
             )
             
             return result.acknowledged
-        except PyMongoError as e:
-            logger.error(f"Error storing heartbeat in MongoDB: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error storing heartbeat: {str(e)}")
             return False
             
     async def get_heartbeat(self, service_id: str) -> Optional[Dict[str, Any]]:
@@ -115,17 +173,17 @@ class MongoDBAdapter(StorageAdapter):
         Returns:
             Optional[Dict[str, Any]]: Heartbeat data or None if not found
         """
-        if self.db is None:
-            await self.connect()
-            
+        await self._ensure_initialized()
+        
         try:
-            result = await self.db[self.heartbeats_collection].find_one({"id": service_id})
+            result = await self.heartbeats_collection.find_one({"id": service_id})
             if result:
-                # Remove MongoDB's _id field
-                result.pop("_id", None)
-            return result
-        except PyMongoError as e:
-            logger.error(f"Error retrieving heartbeat from MongoDB: {str(e)}")
+                # Convert MongoDB _id to string and remove it
+                result = self._prepare_from_mongodb(result)
+                return result
+            return None
+        except Exception as e:
+            logger.error(f"Error retrieving heartbeat: {str(e)}")
             return None
             
     async def get_all_heartbeats(self) -> Dict[str, Dict[str, Any]]:
@@ -135,20 +193,19 @@ class MongoDBAdapter(StorageAdapter):
         Returns:
             Dict[str, Dict[str, Any]]: Dictionary mapping service IDs to heartbeat data
         """
-        if self.db is None:
-            await self.connect()
-            
-        result = {}
+        await self._ensure_initialized()
+        
         try:
-            cursor = self.db[self.heartbeats_collection].find({})
-            async for document in cursor:
-                service_id = document.pop("id", None)
+            result = {}
+            async for doc in self.heartbeats_collection.find():
+                # Convert MongoDB _id to string and remove it
+                doc = self._prepare_from_mongodb(doc)
+                service_id = doc.get("id")
                 if service_id:
-                    document.pop("_id", None)  # Remove MongoDB's _id field
-                    result[service_id] = document
+                    result[service_id] = doc
             return result
-        except PyMongoError as e:
-            logger.error(f"Error retrieving all heartbeats from MongoDB: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error retrieving all heartbeats: {str(e)}")
             return {}
             
     async def store_error(self, error_data: Dict[str, Any]) -> bool:
@@ -161,21 +218,22 @@ class MongoDBAdapter(StorageAdapter):
         Returns:
             bool: True if data was stored successfully
         """
-        if self.db is None:
-            await self.connect()
-            
+        await self._ensure_initialized()
+        
         try:
-            # Convert datetime objects to proper format
-            data_to_store = self._prepare_for_mongodb(error_data)
+            # Convert datetime objects to strings for MongoDB
+            error_data_copy = self._prepare_for_mongodb(error_data)
             
-            # Add storage timestamp if not present
-            if "stored_at" not in data_to_store:
-                data_to_store["stored_at"] = datetime.utcnow()
-                
-            result = await self.db[self.errors_collection].insert_one(data_to_store)
+            # Ensure timestamp is set
+            if "timestamp" not in error_data_copy:
+                error_data_copy["timestamp"] = datetime.now()
+            
+            # Insert the document
+            result = await self.errors_collection.insert_one(error_data_copy)
+            
             return result.acknowledged
-        except PyMongoError as e:
-            logger.error(f"Error storing error log in MongoDB: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error storing error: {str(e)}")
             return False
             
     async def get_errors(
@@ -195,26 +253,33 @@ class MongoDBAdapter(StorageAdapter):
         Returns:
             List[Dict[str, Any]]: List of error logs
         """
-        if self.db is None:
-            await self.connect()
-            
-        query = {}
-        if service_id:
-            query["service_id"] = service_id
-            
-        result = []
+        await self._ensure_initialized()
+        
         try:
-            cursor = self.db[self.errors_collection].find(query).sort(
-                "timestamp", -1  # Sort by timestamp descending (newest first)
-            ).skip(skip).limit(limit)
+            # Build query
+            query = {}
+            if service_id:
+                query["service_id"] = service_id
             
-            async for document in cursor:
-                document.pop("_id", None)  # Remove MongoDB's _id field
-                result.append(document)
-                
+            # Execute query
+            cursor = self.errors_collection.find(query)
+            
+            # Sort by timestamp descending
+            cursor = cursor.sort("timestamp", -1)
+            
+            # Apply pagination
+            cursor = cursor.skip(skip).limit(limit)
+            
+            # Convert results
+            result = []
+            async for doc in cursor:
+                # Convert MongoDB _id to string and remove it
+                doc = self._prepare_from_mongodb(doc)
+                result.append(doc)
+            
             return result
-        except PyMongoError as e:
-            logger.error(f"Error retrieving error logs from MongoDB: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error retrieving errors: {str(e)}")
             return []
             
     def _prepare_for_mongodb(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -239,7 +304,7 @@ class MongoDBAdapter(StorageAdapter):
                 ]
             elif isinstance(value, datetime):
                 # MongoDB can store datetime objects directly
-                result[key] = value
+                result[key] = value.isoformat()
             elif isinstance(value, (int, float, str, bool, type(None))):
                 # These types are directly supported by MongoDB
                 result[key] = value
@@ -247,6 +312,42 @@ class MongoDBAdapter(StorageAdapter):
                 # Convert other types to string
                 result[key] = str(value)
                 
+        return result
+
+    def _prepare_from_mongodb(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Prepare data from MongoDB for use.
+        
+        Args:
+            data: Data to prepare
+            
+        Returns:
+            Dict[str, Any]: Prepared data
+        """
+        # Create a deep copy to avoid modifying the original
+        import copy
+        result = copy.deepcopy(data)
+        
+        # Convert MongoDB _id to string and remove it
+        if "_id" in result:
+            result["_id"] = str(result["_id"])
+            del result["_id"]
+        
+        # Convert string timestamps to datetime objects
+        for key, value in result.items():
+            if isinstance(value, str) and key in ["timestamp", "created_at", "updated_at", "last_heartbeat"]:
+                try:
+                    result[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                except ValueError:
+                    pass
+            elif isinstance(value, dict):
+                result[key] = self._prepare_from_mongodb(value)
+            elif isinstance(value, list):
+                result[key] = [
+                    self._prepare_from_mongodb(item) if isinstance(item, dict) else item
+                    for item in value
+                ]
+        
         return result
 
     async def disconnect(self):

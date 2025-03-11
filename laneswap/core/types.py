@@ -9,6 +9,7 @@ from datetime import datetime
 class HeartbeatStatus(str, Enum):
     """Enum representing possible service health statuses."""
     HEALTHY = "healthy"
+    WARNING = "warning"
     DEGRADED = "degraded"
     ERROR = "error"
     BUSY = "busy"
