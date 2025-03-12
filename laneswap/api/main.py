@@ -5,6 +5,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from ..core.heartbeat import HeartbeatManager, get_manager
 from ..core.config import setup_logging, get_settings, configure
@@ -163,12 +167,13 @@ def get_server_urls(host: str, port: int) -> Dict[str, Dict[str, str]]:
     # If host is 0.0.0.0, use localhost for documentation
     doc_host = "localhost" if host == "0.0.0.0" else host
     
-    return [
-        {
-            "url": f"http://{doc_host}:{port}",
-            "description": "Development server"
+    return {
+        f"http://{doc_host}:{port}": {
+            "api": f"http://{doc_host}:{port}/api",
+            "docs": f"http://{doc_host}:{port}/docs",
+            "web_monitor": f"http://{doc_host}:{port}/web-monitor"
         }
-    ]
+    }
 
 # Create the FastAPI app
 app = create_app()

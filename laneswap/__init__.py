@@ -6,7 +6,7 @@ through heartbeats, with support for various storage backends and notification
 channels.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 
 # Core exports
 from .core.heartbeat import (

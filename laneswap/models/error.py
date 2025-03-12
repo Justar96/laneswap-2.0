@@ -1,11 +1,15 @@
+"""
+Models for error handling.
+"""
+
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, UTC
 from pydantic import BaseModel, Field
 
 
 class ErrorLog(BaseModel):
     """Model for error logs."""
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     service_id: Optional[str] = None
     error_type: str
     message: str
@@ -18,5 +22,13 @@ class ErrorResponse(BaseModel):
     status_code: int
     error: str
     message: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     details: Optional[Dict[str, Any]] = None
+
+
+class ValidationError(BaseModel):
+    """Model for validation errors."""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    field: str
+    error: str
+    value: str

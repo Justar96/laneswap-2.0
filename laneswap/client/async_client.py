@@ -8,7 +8,7 @@ from other services.
 import asyncio
 import logging
 import warnings
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from datetime import datetime
 
 import aiohttp
@@ -32,30 +32,43 @@ class LaneswapAsyncClient:
     def __init__(
         self,
         api_url: str,
-        service_id: Optional[str] = None,
         service_name: Optional[str] = None,
+        service_id: Optional[str] = None,
+        auto_heartbeat: bool = False,
         heartbeat_interval: int = 30,
-        auto_heartbeat: bool = False
+        headers: Optional[Dict[str, str]] = None
     ):
         """
         Initialize the LaneSwap client.
         
         Args:
-            api_url: URL of the LaneSwap API server
+            api_url: Base URL for the LaneSwap API (e.g., http://localhost:8000)
+            service_name: Human-readable name for the service
             service_id: Optional service ID (will be auto-generated if not provided)
-            service_name: Service name (required if service_id is not provided)
-            heartbeat_interval: Interval in seconds between automatic heartbeats
             auto_heartbeat: Whether to automatically send heartbeats
+            heartbeat_interval: Interval between heartbeats in seconds
+            headers: Optional headers to include in all requests
         """
+        # Normalize API URL to ensure it doesn't end with a trailing slash
         self.api_url = api_url.rstrip('/')
-        self.service_id = service_id
+        
+        # Check if the API URL already includes '/api'
+        if not self.api_url.endswith('/api'):
+            self.api_base_url = f"{self.api_url}/api"
+        else:
+            self.api_base_url = self.api_url
+        
         self.service_name = service_name
-        self.heartbeat_interval = heartbeat_interval
+        self.service_id = service_id
         self.auto_heartbeat = auto_heartbeat
-        self.metadata: Dict[str, Any] = {}
-        self._session: Optional[aiohttp.ClientSession] = None
+        self.heartbeat_interval = heartbeat_interval
+        self.headers = headers or {}
+        
+        # Internal state
+        self._session = None
         self._heartbeat_task = None
         self._connected = False
+        self._closed = False
         
         # Validate parameters
         if not self.service_id and not self.service_name:
@@ -173,56 +186,83 @@ class LaneswapAsyncClient:
             metadata=metadata or {}
         )
         
-        async with self._session.post(
-            f"{self.api_url}/api/services",
-            json=registration.dict(exclude_none=True)
-        ) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                raise RuntimeError(f"Failed to register service: {error_text}")
+        logger.debug(f"Registering service at {self.api_base_url}/services")
+        logger.debug(f"Registration data: {registration.dict(exclude_none=True)}")
+        
+        try:
+            async with self._session.post(
+                f"{self.api_base_url}/services",
+                json=registration.dict(exclude_none=True),
+                timeout=30  # Increase timeout for registration
+            ) as response:
+                response_text = await response.text()
+                logger.debug(f"Registration response ({response.status}): {response_text}")
                 
-            response_data = await response.json()
-            return response_data.get("service_id")
+                if response.status != 200:
+                    error_msg = f"Failed to register service: HTTP {response.status}"
+                    try:
+                        error_data = await response.json()
+                        if isinstance(error_data, dict):
+                            error_msg = f"{error_msg} - {error_data.get('detail', response_text)}"
+                    except:
+                        error_msg = f"{error_msg} - {response_text}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
+                    
+                try:
+                    response_data = await response.json()
+                except:
+                    raise RuntimeError(f"Invalid JSON response from server: {response_text}")
+                
+                service_id = response_data.get("service_id")
+                if not service_id:
+                    raise RuntimeError("Server response missing service_id")
+                
+                logger.info(f"Service registered successfully with ID: {service_id}")
+                return service_id
+                
+        except aiohttp.ClientError as e:
+            error_msg = f"Network error during service registration: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
             
     async def send_heartbeat(
         self,
-        status: HeartbeatStatus = HeartbeatStatus.HEALTHY,
+        status: Union[str, HeartbeatStatus] = HeartbeatStatus.HEALTHY,
         message: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Send a heartbeat to the LaneSwap API.
+        Send a heartbeat for the service.
         
         Args:
             status: Current status of the service
-            message: Optional status message
-            metadata: Additional metadata to include with the heartbeat
+            message: Optional message to include with the heartbeat
+            metadata: Additional information to include with the heartbeat
             
         Returns:
-            Dict[str, Any]: Response from the API
-            
-        Raises:
-            ValueError: If the service is not registered
-            RuntimeError: If the heartbeat request fails
+            Dict[str, Any]: Updated service status
         """
         if not self.service_id:
-            raise ValueError("Service not registered. Call connect() first.")
+            raise ValueError("Service ID is required to send a heartbeat")
             
-        # Ensure we have a session
-        if self._session is None or self._session.closed:
+        if self._session is None:
             self._session = aiohttp.ClientSession()
+            
+        # Convert status to string if it's an enum
+        if isinstance(status, HeartbeatStatus):
+            status = status.value
             
         heartbeat = ServiceHeartbeat(
             status=status,
             message=message,
-            metadata=metadata
+            metadata=metadata or {}
         )
         
         try:
             async with self._session.post(
-                f"{self.api_url}/api/services/{self.service_id}/heartbeat",
-                json=heartbeat.dict(exclude_none=True),
-                timeout=10  # Add timeout
+                f"{self.api_base_url}/services/{self.service_id}/heartbeat",
+                json=heartbeat.dict(exclude_none=True)
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
@@ -233,34 +273,34 @@ class LaneswapAsyncClient:
             # More specific error handling
             raise RuntimeError(f"Network error when sending heartbeat: {str(e)}") from e
             
-    async def get_status(self) -> Dict[str, Any]:
+    async def get_service(self) -> Dict[str, Any]:
         """
-        Get the current status of this service.
+        Get the current status of the service.
         
         Returns:
-            Dict[str, Any]: The service status
-            
-        Raises:
-            ValueError: If the service is not registered
-            RuntimeError: If the status request fails
+            Dict[str, Any]: Service status information
         """
         if not self.service_id:
-            raise ValueError("Service not registered. Call connect() first.")
+            raise ValueError("Service ID is required to get service status")
             
-        # Ensure we have a session
-        if self._session is None or self._session.closed:
+        if self._session is None:
             self._session = aiohttp.ClientSession()
             
-        async with self._session.get(
-            f"{self.api_url}/api/services/{self.service_id}"
-        ) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                if response.status == 404:
-                    raise ServiceNotFoundError(f"Service not found: {self.service_id}")
-                raise RuntimeError(f"Failed to get service status: {error_text}")
-                
-            return await response.json()
+        try:
+            async with self._session.get(
+                f"{self.api_base_url}/services/{self.service_id}"
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    if response.status == 404:
+                        raise ServiceNotFoundError(f"Service not found: {self.service_id}")
+                    raise RuntimeError(f"Failed to get service status: {error_text}")
+                    
+                return await response.json()
+        except aiohttp.ClientError as e:
+            error_msg = f"Network error when getting service status: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
             
     async def get_all_services(self) -> Dict[str, Any]:
         """
@@ -268,22 +308,23 @@ class LaneswapAsyncClient:
         
         Returns:
             Dict[str, Any]: Dictionary with services data and summary statistics
-            
-        Raises:
-            RuntimeError: If the request fails
         """
-        # Ensure we have a session
-        if self._session is None or self._session.closed:
+        if self._session is None:
             self._session = aiohttp.ClientSession()
             
-        async with self._session.get(
-            f"{self.api_url}/api/services"
-        ) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                raise RuntimeError(f"Failed to get services: {error_text}")
-                
-            return await response.json()
+        try:
+            async with self._session.get(
+                f"{self.api_base_url}/services"
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise RuntimeError(f"Failed to get services: {error_text}")
+                    
+                return await response.json()
+        except aiohttp.ClientError as e:
+            error_msg = f"Network error when getting services: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
             
     def set_metadata(self, metadata: Dict[str, Any]):
         """

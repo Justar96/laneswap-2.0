@@ -1,8 +1,8 @@
 from typing import Dict, Any, Optional, List
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo.errors import PyMongoError
+from pymongo.errors import PyMongoError, OperationFailure
 import asyncio
 
 from .base import StorageAdapter
@@ -39,6 +39,7 @@ class MongoDBAdapter(StorageAdapter):
         self.heartbeats_collection_name = heartbeats_collection
         self.errors_collection_name = errors_collection
         self._initialized = False
+        self.logger = logging.getLogger("laneswap")
         
     async def initialize(self) -> None:
         """
@@ -67,10 +68,33 @@ class MongoDBAdapter(StorageAdapter):
             self.heartbeats_collection = self.db[self.heartbeats_collection_name]
             self.errors_collection = self.db[self.errors_collection_name]
             
-            # Create indexes
-            await self.heartbeats_collection.create_index("id", unique=True)
-            await self.errors_collection.create_index("service_id")
-            await self.errors_collection.create_index("timestamp")
+            # Create indexes with error handling
+            try:
+                await self.heartbeats_collection.create_index("id", unique=True)
+            except OperationFailure as e:
+                # If the error is due to an index conflict, log and continue
+                if "IndexOptionsConflict" in str(e) or "already exists" in str(e):
+                    logger.warning(f"Index 'id' already exists with different options: {str(e)}")
+                else:
+                    raise
+                
+            try:
+                await self.errors_collection.create_index("service_id")
+            except OperationFailure as e:
+                # If the error is due to an index conflict, log and continue
+                if "IndexOptionsConflict" in str(e) or "already exists" in str(e):
+                    logger.warning(f"Index 'service_id' already exists with different options: {str(e)}")
+                else:
+                    raise
+                
+            try:
+                await self.errors_collection.create_index("timestamp")
+            except OperationFailure as e:
+                # If the error is due to an index conflict, log and continue
+                if "IndexOptionsConflict" in str(e) or "already exists" in str(e):
+                    logger.warning(f"Index 'timestamp' already exists with different options: {str(e)}")
+                else:
+                    raise
             
             self._initialized = True
             logger.info(f"MongoDB adapter initialized: {self.database_name}")
@@ -131,36 +155,32 @@ class MongoDBAdapter(StorageAdapter):
                     logger.warning(f"MongoDB connection attempt {attempt} failed: {str(e)}. Retrying in {retry_delay}s...")
                     await asyncio.sleep(retry_delay)
                 
-    async def store_heartbeat(self, service_id: str, heartbeat_data: Dict[str, Any]) -> bool:
-        """
-        Store heartbeat data in MongoDB.
-        
-        Args:
-            service_id: Service identifier
-            heartbeat_data: Heartbeat information to store
-            
-        Returns:
-            bool: True if data was stored successfully
-        """
-        await self._ensure_initialized()
-        
+    async def store_heartbeat(self, service_id: str, heartbeat_data: dict) -> bool:
+        """Store a heartbeat in MongoDB."""
         try:
-            # Convert datetime objects to strings for MongoDB
-            heartbeat_data_copy = self._prepare_for_mongodb(heartbeat_data)
-            
-            # Ensure ID is set
-            heartbeat_data_copy["id"] = service_id
-            
-            # Upsert the document
-            result = await self.heartbeats_collection.replace_one(
+            # Ensure service_id is included in the heartbeat data
+            heartbeat_data = {
+                **heartbeat_data,
+                "id": service_id,
+                "timestamp": heartbeat_data["timestamp"].isoformat() if isinstance(heartbeat_data.get("timestamp"), datetime) else heartbeat_data.get("timestamp")
+            }
+
+            # Convert any datetime objects in metadata to ISO format strings
+            if "metadata" in heartbeat_data and isinstance(heartbeat_data["metadata"], dict):
+                for key, value in heartbeat_data["metadata"].items():
+                    if isinstance(value, datetime):
+                        heartbeat_data["metadata"][key] = value.isoformat()
+
+            # Use upsert to update existing heartbeat or insert new one
+            await self.heartbeats_collection.update_one(
                 {"id": service_id},
-                heartbeat_data_copy,
+                {"$set": heartbeat_data},
                 upsert=True
             )
-            
-            return result.acknowledged
+            self.logger.debug(f"Stored heartbeat for service {service_id}")
+            return True
         except Exception as e:
-            logger.error(f"Error storing heartbeat: {str(e)}")
+            self.logger.error(f"Failed to store heartbeat for service {service_id}: {str(e)}")
             return False
             
     async def get_heartbeat(self, service_id: str) -> Optional[Dict[str, Any]]:
@@ -226,7 +246,7 @@ class MongoDBAdapter(StorageAdapter):
             
             # Ensure timestamp is set
             if "timestamp" not in error_data_copy:
-                error_data_copy["timestamp"] = datetime.now()
+                error_data_copy["timestamp"] = datetime.now(UTC)
             
             # Insert the document
             result = await self.errors_collection.insert_one(error_data_copy)
@@ -377,7 +397,7 @@ class MongoDBAdapter(StorageAdapter):
         try:
             # Prepare all documents for MongoDB
             documents = []
-            current_time = datetime.utcnow()
+            current_time = datetime.now(UTC)
             
             for error in error_logs:
                 data = self._prepare_for_mongodb(error)
@@ -467,3 +487,22 @@ class MongoDBAdapter(StorageAdapter):
             return connection_string
         except Exception:
             return "mongodb://*****"
+
+    async def get_service_heartbeat(self, service_id: str) -> Optional[Dict[str, Any]]:
+        """Get the latest heartbeat for a service."""
+        if not self._initialized:
+            await self._ensure_initialized()
+
+        try:
+            heartbeat = await self.db[self.heartbeats_collection_name].find_one(
+                {"service_id": service_id},
+                sort=[("timestamp", -1)]
+            )
+            if heartbeat:
+                # Convert ObjectId to string for JSON serialization
+                heartbeat["_id"] = str(heartbeat["_id"])
+                return heartbeat
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get heartbeat for service {service_id}: {e}")
+            return None

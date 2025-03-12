@@ -1,0 +1,32 @@
+version: '3'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: laneswap-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=laneswap
+      - MONGO_INITDB_ROOT_PASSWORD=laneswap
+    restart: unless-stopped
+
+  laneswap-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: laneswap-api
+    ports:
+      - "8000:8000"
+      - "8080:8080"
+    environment:
+      - MONGODB_URI=mongodb://laneswap:laneswap@mongodb:27017/laneswap?authSource=admin
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+    command: python -m laneswap.api.server --no-browser
+
+volumes:
+  mongodb_data: 

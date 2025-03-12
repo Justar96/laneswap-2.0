@@ -10,8 +10,7 @@ LaneSwap Heartbeat is a Python library that provides real-time monitoring of ser
 
 - **Real-time Health Monitoring**: Track the operational status of all your services
 - **Automatic Stale Detection**: Identify services that have stopped sending heartbeats
-- **Web Dashboard**: Beautiful, responsive UI for monitoring service health
-- **Multi-language Support**: Interface available in English and Thai
+- **Terminal Dashboard**: Beautiful, colorful terminal UI for monitoring service health
 - **Flexible Notifications**: Send alerts through various channels when service status changes
 - **Low Overhead**: Minimal impact on your services' performance
 - **Easy Integration**: Simple API for sending heartbeats from any service
@@ -27,41 +26,25 @@ LaneSwap Heartbeat is a Python library that provides real-time monitoring of ser
 pip install laneswap
 ```
 
-### Start the API Server with Web Monitor
+For a complete installation with all dependencies:
+
+```bash
+pip install laneswap[all]
+```
+
+### Start the API Server
 
 ```bash
 python -m laneswap.api.server
 ```
 
-This will:
-- Start the API server on port 8000
-- Start the web monitor on port 8080
-- Open the web monitor in your default browser
+This will start the API server on port 8000.
 
 ### Command Line Options
 
 ```bash
-# Start without opening a browser
-python -m laneswap.api.server --no-browser
-
-# Start without the web monitor
-python -m laneswap.api.server --no-monitor
-
-# Specify custom ports
-python -m laneswap.api.server --port 9000 --monitor-port 9080
-```
-
-### Using the CLI
-
-```bash
-# Start the server with web monitor
+# Start the server
 laneswap server
-
-# Start without opening a browser
-laneswap server --no-browser
-
-# Start without the web monitor
-laneswap server --no-monitor
 
 # List all registered services
 laneswap services list
@@ -71,6 +54,9 @@ laneswap services get <service-id>
 
 # Send a heartbeat for a service
 laneswap services heartbeat <service-id> --status healthy
+
+# Start the terminal monitor
+laneswap-term --api-url http://localhost:8000
 ```
 
 ### Register a Service and Send Heartbeats
@@ -114,7 +100,7 @@ if __name__ == "__main__":
 LaneSwap consists of several main components:
 
 1. **API Server**: FastAPI-based server that receives heartbeats from services and stores their status
-2. **Web Monitor**: Responsive web dashboard for monitoring service health in real-time
+2. **Terminal Monitor**: Colorful terminal dashboard for monitoring service health in real-time
 3. **Client Library**: Async client for sending heartbeats from your services
 4. **Storage Adapters**: Pluggable storage backends (currently MongoDB)
 5. **Notification Adapters**: Pluggable notification systems (currently Discord)
@@ -147,142 +133,104 @@ LANESWAP_CHECK_INTERVAL=30
 LANESWAP_STALE_THRESHOLD=60
 ```
 
-## Web Monitor Features
+## Terminal Monitor Features
 
-The web monitor provides a comprehensive dashboard for monitoring your services:
+The terminal monitor provides a comprehensive dashboard for monitoring your services:
 
 - **Real-time Updates**: See service status changes as they happen
-- **Search and Filtering**: Quickly find specific services
-- **Grid and Table Views**: Choose the view that works best for you
-- **Dark/Light Themes**: Customize the interface to your preference
-- **Detailed Service Information**: View complete service history and metadata
-- **Responsive Design**: Works on desktop and mobile devices
-- **Internationalization**: Support for multiple languages
+- **Color-coded Status**: Quickly identify service health with color indicators
+- **Automatic Refresh**: Configurable refresh interval
+- **Summary Statistics**: Overview of service health status
+- **Detailed Service Information**: View complete service information including latency and last heartbeat
+- **Keyboard Shortcuts**: Easy navigation with keyboard shortcuts
+- **Auto-detection**: Automatically detects if a terminal is available
+- **Headless Mode**: Can run in non-terminal mode for headless environments
+- **Scroll Preservation**: Preserves terminal scroll history for better navigation
+- **Pause/Resume**: Press SPACE to pause/resume auto-refresh for uninterrupted viewing
+- **Stable UI**: Consistent and stable terminal UI that handles window resizing
+- **Priority Sorting**: Services are sorted by status (critical first) and then by name
+- **Adaptive Display**: Automatically adjusts to terminal size and shows the most important services
 
-## Adding a New Language
+### Starting the Terminal Monitor
 
-To add a new language to the web monitor:
+You can start the terminal monitor in several ways:
 
-1. Open `laneswap/examples/web_monitor/i18n.js`
-2. Add a new language object to the `translations` object
-3. Follow the same structure as the existing languages
-4. Add a language selector button in `index.html`
+```bash
+# Using the CLI entry point
+laneswap-term --api-url http://localhost:8000
 
-Example of adding German language support:
+# Using the CLI with custom refresh interval
+laneswap-term --api-url http://localhost:8000 --refresh 5.0
 
-```javascript
-// In i18n.js
-const translations = {
-    en: {
-        // existing English translations
-    },
-    th: {
-        // existing Thai translations
-    },
-    de: {
-        title: "LaneSwap Monitor",
-        nav: {
-            title: "LaneSwap Monitor",
-            dashboard: "Dashboard",
-            settings: "Einstellungen",
-            help: "Hilfe"
-        },
-        // Add all other translations
-    }
-};
+# Run in non-terminal mode (logging only, no UI)
+laneswap-term --api-url http://localhost:8000 --no-terminal
 
-// In index.html, add to the language switcher:
-// <button class="lang-btn" data-lang="de" onclick="changeLanguage('de')">DE</button>
+# Force terminal mode even if no terminal is detected
+laneswap-term --api-url http://localhost:8000 --force-terminal
+
+# Start in paused mode (no auto-refresh until you press SPACE)
+laneswap-term --api-url http://localhost:8000 --paused
+
+# From Python code
+from laneswap.terminal import start_monitor
+import asyncio
+
+# Auto-detect terminal availability
+asyncio.run(start_monitor(api_url="http://localhost:8000", refresh_interval=2.0))
+
+# Force non-terminal mode
+asyncio.run(start_monitor(api_url="http://localhost:8000", refresh_interval=2.0, use_terminal=False))
+
+# Start in paused mode
+asyncio.run(start_monitor(api_url="http://localhost:8000", refresh_interval=2.0, start_paused=True))
 ```
+
+### Terminal Monitor Keyboard Controls
+
+While the terminal monitor is running, you can use these keyboard controls:
+
+- **SPACE**: Pause/resume auto-refresh (useful for scrolling through service data)
+- **CTRL+C**: Exit the monitor
 
 ## System Check
 
-To verify that all components of the LaneSwap system are working correctly, you can run the system check script:
+To verify that all components of the LaneSwap system are working correctly, you can run the validation command:
 
 ```bash
-python -m laneswap.examples.system_check
+# Run validation with default options
+laneswap validate
+
+# Skip web monitor validation
+laneswap validate --no-web-monitor
+
+# Treat warnings as errors
+laneswap validate --strict
+
+# Run validation without printing results
+laneswap validate --quiet
 ```
 
-This script checks:
-- All required modules can be imported
-- Configuration is loaded correctly
-- Web monitor is working
-- API server is working
-- Client is working
-- MongoDB connection (if configured)
-- Discord webhook (if configured)
-
-If any issues are found, the script will provide detailed information to help you fix them.
-
-## Troubleshooting
-
-### Common Issues
-
-#### MongoDB Connection Failures
-
-If you see errors like:
-```
-Failed to initialize MongoDB adapter: localhost:27017: [WinError 10061] No connection could be made because the target machine actively refused it
-```
-
-This means MongoDB is not running or not accessible. To fix:
-
-1. Make sure MongoDB is installed and running:
-   ```bash
-   # Check if MongoDB is running
-   mongosh
-   ```
-
-2. If MongoDB is not installed, you can install it or use a Docker container:
-   ```bash
-   # Run MongoDB in Docker
-   docker run -d -p 27017:27017 --name mongodb mongo:latest
-   ```
-
-3. Update your connection string in the `.env` file if your MongoDB is running on a different host or port.
-
-#### Import Errors
-
-If you encounter import errors during the system check, ensure all dependencies are installed:
+You can also run the validation script directly:
 
 ```bash
-pip install -r requirements.txt
+python -m laneswap.examples.verify_installation
 ```
 
-#### Web Monitor Issues
+The validation checks:
+- All required dependencies are installed
+- Key LaneSwap components can be imported
+- Overall system status
 
-If the web monitor fails to start:
+If any issues are found, the validator will provide detailed information to help you fix them.
 
-1. Check if the port is already in use:
-   ```bash
-   # On Windows
-   netstat -ano | findstr :8080
-   
-   # On Linux/macOS
-   lsof -i :8080
-   ```
+### Automatic Validation
 
-2. Try specifying a different port:
-   ```bash
-   python -m laneswap.api.server --monitor-port 9080
-   ```
+LaneSwap automatically runs validation when:
+1. A service is registered for the first time
+2. The heartbeat system is initialized
+3. The CLI is started
 
-3. Ensure you have the required permissions to open the browser automatically.
-
-#### Configuration Issues
-
-If configuration checks fail:
-
-1. Verify your `.env` file is in the correct location (project root directory)
-2. Check for syntax errors in your configuration
-3. Try setting environment variables directly:
-   ```bash
-   # Windows
-   set LANESWAP_MONGODB_URI=mongodb://localhost:27017
-   
-   # Linux/macOS
-   export LANESWAP_MONGODB_URI=mongodb://localhost:27017
-   ```
+This ensures that any potential issues are detected early, before they cause problems in production.
 
 ## Running Without MongoDB
 
@@ -309,7 +257,28 @@ python -m laneswap.examples.progress_service
 
 # Test Discord webhook notifications
 python -m laneswap.examples.discord_webhook_example
+
+# Start the terminal monitor with a mock API server for demonstration
+python -m laneswap.examples.mock_api_server  # Start the mock API server
+python -m laneswap.examples.terminal_monitor_example  # Start the terminal monitor
 ```
+
+### Mock API Server
+
+For testing and demonstration purposes, LaneSwap includes a mock API server that simulates service data without requiring a full setup:
+
+```bash
+# Start the mock API server
+python -m laneswap.examples.mock_api_server
+
+# Connect the terminal monitor to the mock server
+python -m laneswap.examples.terminal_monitor_example --api-url http://localhost:8000
+
+# Connect in non-terminal mode (for headless environments or CI/CD pipelines)
+python -m laneswap.examples.terminal_monitor_example --api-url http://localhost:8000 --no-terminal
+```
+
+The mock server generates random service data and periodically updates service statuses to demonstrate the terminal monitor's real-time capabilities. The non-terminal mode is useful for automated testing, CI/CD pipelines, or running in headless environments.
 
 ## API Reference
 

@@ -1,19 +1,26 @@
-from fastapi import APIRouter, Response
-from datetime import datetime, timezone
+"""
+Health check router for the LaneSwap API.
+"""
+
+from datetime import datetime, UTC
+from fastapi import APIRouter
 
 router = APIRouter()
 
 
-@router.get("/health", summary="Health check endpoint")
+@router.get(
+    "/health",
+    summary="Health check endpoint"
+)
 async def health_check():
     """
-    Simple health check endpoint to verify the API is running.
+    Simple health check endpoint that returns the service status.
     
     Returns:
-        dict: Basic health information
+        dict: Health check response containing status and timestamp
     """
     return {
         "status": "ok",
-        "service": "laneswap",
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "service": "LaneSwap API",
+        "timestamp": datetime.now(UTC).isoformat()
     }

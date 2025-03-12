@@ -28,6 +28,13 @@ from ..client.async_client import LaneswapAsyncClient
 from ..core.config import API_URL, MONITOR_URL
 from ..adapters.discord import DiscordWebhookAdapter
 
+# Import validator if available
+try:
+    from ..core.validator import run_validation
+    _validator_available = True
+except ImportError:
+    _validator_available = False
+
 logger = logging.getLogger("laneswap.cli")
 
 # Global Discord adapter for CLI commands
@@ -565,99 +572,56 @@ def test(service_id, level, message):
     
     asyncio.run(run_test())
 
+@cli.command()
+@click.option('--no-terminal-monitor', is_flag=True, help='Skip terminal monitor validation')
+@click.option('--strict', is_flag=True, help='Treat warnings as errors')
+@click.option('--quiet', is_flag=True, help='Don\'t print validation results')
+def validate(no_terminal_monitor, strict, quiet):
+    """Validate LaneSwap installation."""
+    try:
+        if not _validator_available:
+            click.echo("Validator module not available. Make sure LaneSwap is installed correctly.")
+            return 1
+        
+        from ..core.validator import run_validation
+        
+        # Run validation
+        results = run_validation(
+            check_terminal_monitor=not no_terminal_monitor,
+            print_results=not quiet
+        )
+        
+        # Return exit code based on validation results
+        if results["overall_status"] == "error":
+            return 1
+        elif results["overall_status"] == "warning" and strict:
+            return 2
+        else:
+            return 0
+    except Exception as e:
+        click.echo(f"Error running validation: {str(e)}")
+        return 1
+
 def main():
     """Main entry point for the CLI."""
-    parser = argparse.ArgumentParser(description="LaneSwap CLI")
-    subparsers = parser.add_subparsers(dest="command", help="Command to run")
-    
-    # Common arguments
-    api_url_arg = lambda p: p.add_argument("--api-url", default="http://localhost:8000", help="LaneSwap API URL")
-    
-    # Register service command
-    register_parser = subparsers.add_parser("register", help="Register a new service")
-    api_url_arg(register_parser)
-    register_parser.add_argument("--name", required=True, help="Service name")
-    register_parser.add_argument("--id", help="Service ID (optional)")
-    register_parser.add_argument("--metadata", help="Service metadata (JSON)")
-    
-    # Send heartbeat command
-    heartbeat_parser = subparsers.add_parser("heartbeat", help="Send a heartbeat")
-    api_url_arg(heartbeat_parser)
-    heartbeat_parser.add_argument("--id", required=True, help="Service ID")
-    heartbeat_parser.add_argument("--status", default="healthy", choices=[s.value for s in HeartbeatStatus], help="Heartbeat status")
-    heartbeat_parser.add_argument("--message", help="Heartbeat message")
-    heartbeat_parser.add_argument("--metadata", help="Heartbeat metadata (JSON)")
-    
-    # List services command
-    list_parser = subparsers.add_parser("list", help="List all services")
-    api_url_arg(list_parser)
-    
-    # Get service command
-    get_parser = subparsers.add_parser("get", help="Get service details")
-    api_url_arg(get_parser)
-    get_parser.add_argument("--id", required=True, help="Service ID")
-    
-    # Server command
-    server_parser = subparsers.add_parser("server", help="Start the API server")
-    server_parser.add_argument("--host", default="0.0.0.0", help="Host to bind the server to")
-    server_parser.add_argument("--port", type=int, default=8000, help="Port to run the server on")
-    server_parser.add_argument("--debug", action="store_true", help="Run in debug mode")
-    server_parser.add_argument("--no-monitor", action="store_true", help="Don't start the web monitor")
-    server_parser.add_argument("--monitor-port", type=int, default=8080, help="Port to run the web monitor on")
-    server_parser.add_argument("--no-browser", action="store_true", help="Don't open a browser window")
-    
-    # Monitor command
-    monitor_parser = subparsers.add_parser("monitor", help="Monitor services in real-time")
-    api_url_arg(monitor_parser)
-    monitor_parser.add_argument("--interval", type=int, default=5, help="Refresh interval in seconds")
-    
-    # Web monitor command
-    web_monitor_parser = subparsers.add_parser("web", help="Launch the web monitor")
-    web_monitor_parser.add_argument("--port", type=int, default=8080, help="Port for the web server")
-    api_url_arg(web_monitor_parser)
-    web_monitor_parser.add_argument("--no-browser", action="store_true", help="Don't open a browser window")
-    
-    # Parse arguments
-    args = parser.parse_args()
-    
-    # Set up logging
-    setup_logging()
-    
-    # Run command
-    if args.command == "register":
-        asyncio.run(register_service_cmd(args))
-    elif args.command == "heartbeat":
-        asyncio.run(send_heartbeat_cmd(args))
-    elif args.command == "list":
-        asyncio.run(list_services_cmd(args))
-    elif args.command == "get":
-        asyncio.run(get_service_cmd(args))
-    elif args.command == "server":
-        start_server(args)
-    elif args.command == "monitor":
-        asyncio.run(monitor_services(args))
-    elif args.command == "web":
-        launch_web_monitor(args)
-    elif args.command == "monitor_link":
-        asyncio.run(monitor_link(args.service_id, args.api_url, args.monitor_url, args.open_browser, args.start_if_needed))
-    elif args.command == "dashboard":
-        asyncio.run(dashboard(args.port, args.api_url))
-    elif args.command == "check_servers":
-        asyncio.run(check_servers())
-    elif args.command == "start_monitor":
-        asyncio.run(start_monitor())
-    elif args.command == "discord_setup":
-        asyncio.run(setup(args.webhook_url, args.username, args.avatar_url))
-    elif args.command == "discord_register":
-        asyncio.run(register(args.service_id, args.webhook_url, args.username, args.avatar_url, args.levels))
-    elif args.command == "discord_unregister":
-        asyncio.run(unregister(args.service_id))
-    elif args.command == "discord_list":
-        asyncio.run(list(args.service_id))
-    elif args.command == "discord_test":
-        asyncio.run(test(args.service_id, args.level, args.message))
-    else:
-        parser.print_help()
+    try:
+        # Set up logging
+        setup_logging()
+        
+        # Run validation on startup if available
+        if _validator_available:
+            try:
+                from ..core.validator import run_validation
+                # Run validation but don't print results
+                run_validation(check_terminal_monitor=True, print_results=False)
+            except Exception as e:
+                logger.warning(f"Validation failed: {str(e)}")
+        
+        # Run the CLI
+        cli()
+    except Exception as e:
+        logger.error(f"Error in CLI: {str(e)}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

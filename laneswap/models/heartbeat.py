@@ -3,7 +3,7 @@ Models for heartbeat monitoring.
 """
 
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, UTC
 from pydantic import BaseModel, Field
 
 from ..core.types import HeartbeatStatus
@@ -11,7 +11,7 @@ from ..core.types import HeartbeatStatus
 
 class HeartbeatEvent(BaseModel):
     """Represents a single heartbeat event."""
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     status: HeartbeatStatus
     message: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
@@ -36,16 +36,22 @@ class ServiceStatus(BaseModel):
     id: str
     name: str
     status: HeartbeatStatus
-    last_heartbeat: Optional[datetime] = None
-    last_message: Optional[str] = None
+    message: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_heartbeat: Optional[datetime] = None
     events: List[Dict[str, Any]] = Field(default_factory=list)
+
+    class Config:
+        json_encoders = {
+            datetime: lambda dt: dt.isoformat()
+        }
 
 
 class MultiServiceStatus(BaseModel):
     """Model for multiple service statuses response."""
     services: Dict[str, ServiceStatus]
-    summary: Dict[str, int] = Field(default_factory=dict)
+    summary: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ServiceRegistrationResponse(BaseModel):

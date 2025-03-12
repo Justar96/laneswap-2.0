@@ -50,8 +50,22 @@ def register(name, id, metadata, api_url, webhook_url):
             sys.exit(1)
     
     async def run():
+        client = None
         try:
-            service_id = await register_service(
+            # Initialize the client with the service name
+            logger.debug(f"Initializing client with API URL: {api_url}")
+            client = LaneswapAsyncClient(
+                api_url=api_url,
+                service_name=name  # Pass the service name here
+            )
+            
+            # Connect to the API
+            logger.debug("Connecting to API...")
+            await client.connect()
+            
+            # Register the service
+            logger.debug(f"Registering service '{name}' with metadata: {meta_dict}")
+            service_id = await client.register_service(
                 service_name=name,
                 service_id=id,
                 metadata=meta_dict
@@ -63,8 +77,8 @@ def register(name, id, metadata, api_url, webhook_url):
             
             # Register Discord webhook if provided
             if webhook_url:
-                from .commands import get_discord_adapter
-                adapter = get_discord_adapter()
+                logger.debug(f"Configuring Discord webhook for service {service_id}")
+                adapter = DiscordWebhookAdapter(webhook_url=webhook_url)
                 adapter.register_service_webhook(
                     service_id=service_id,
                     webhook_url=webhook_url
@@ -73,8 +87,13 @@ def register(name, id, metadata, api_url, webhook_url):
                 
             return service_id
         except Exception as e:
-            click.echo(f"Error registering service: {str(e)}")
+            logger.error(f"Error registering service: {str(e)}", exc_info=True)
+            click.echo(f"Error registering service: {str(e)}", err=True)
             sys.exit(1)
+        finally:
+            if client:
+                logger.debug("Disconnecting client...")
+                await client.close()  # Use close() instead of disconnect()
     
     return asyncio.run(run())
 
@@ -103,23 +122,42 @@ def heartbeat(id, status, message, metadata, api_url):
             sys.exit(1)
     
     async def run():
+        client = None
         try:
-            result = await send_heartbeat(
-                service_id=id,
-                status=status_map[status],
-                message=message,
-                metadata=meta_dict
-            )
+            client = LaneswapAsyncClient(api_url=api_url, service_id=id)
+            await client.connect()
             
-            click.echo(f"Heartbeat sent successfully for service {id}")
-            click.echo(f"Status: {status}")
-            if message:
-                click.echo(f"Message: {message}")
+            # Add retry logic for connection issues
+            max_retries = 3
+            retry_delay = 1  # seconds
             
-            return result
+            for attempt in range(max_retries):
+                try:
+                    result = await client.send_heartbeat(
+                        status=status_map[status],
+                        message=message,
+                        metadata=meta_dict
+                    )
+                    
+                    click.echo(f"Heartbeat sent successfully for service {id}")
+                    click.echo(f"Status: {status}")
+                    if message:
+                        click.echo(f"Message: {message}")
+                    
+                    return result
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        click.echo(f"Attempt {attempt + 1} failed, retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        raise
         except Exception as e:
             click.echo(f"Error sending heartbeat: {str(e)}")
             sys.exit(1)
+        finally:
+            if client:
+                await client.disconnect()
     
     return asyncio.run(run())
 
@@ -132,10 +170,19 @@ def heartbeat(id, status, message, metadata, api_url):
 def list(id, api_url, format):
     """List services or get details for a specific service."""
     async def run():
+        client = None
         try:
+            # Initialize the client with a temporary name if no ID is provided
+            client = LaneswapAsyncClient(
+                api_url=api_url,
+                service_id=id if id else None,
+                service_name="cli-list-command" if not id else None
+            )
+            await client.connect()
+            
             if id:
                 # Get specific service
-                service_info = await get_service(id)
+                service_info = await client.get_service()
                 
                 if format == 'json':
                     click.echo(json.dumps(service_info, default=str, indent=2))
@@ -187,7 +234,7 @@ def list(id, api_url, format):
                         ))
             else:
                 # List all services
-                services = await get_all_services()
+                services = await client.get_all_services()
                 
                 if format == 'json':
                     click.echo(json.dumps(services, default=str, indent=2))
@@ -222,8 +269,12 @@ def list(id, api_url, format):
                     click.echo(f"\nTotal services: {len(services)}")
             
         except Exception as e:
-            click.echo(f"Error retrieving services: {str(e)}")
+            logger.error(f"Error retrieving services: {str(e)}", exc_info=True)
+            click.echo(f"Error retrieving services: {str(e)}", err=True)
             sys.exit(1)
+        finally:
+            if client:
+                await client.close()
     
     return asyncio.run(run())
 
@@ -323,19 +374,25 @@ def daemon(id, interval, status, message, metadata, api_url):
 @click.option('--username', help='Display name for the webhook')
 @click.option('--levels', default='warning,error', 
               help='Comma-separated list of notification levels (info,success,warning,error)')
-def webhook(id, webhook_url, username, levels):
+@click.option('--api-url', default=API_URL, help='API URL')
+def webhook(id, webhook_url, username, levels, api_url):
     """Configure a Discord webhook for a service."""
-    from .commands import get_discord_adapter
-    
     notification_levels = [level.strip().lower() for level in levels.split(',')]
     
     async def run():
+        client = None
         try:
-            # Verify service exists
-            service_info = await get_service(id)
+            # Initialize the client and connect
+            client = LaneswapAsyncClient(api_url=api_url, service_id=id)
+            await client.connect()
             
-            # Configure webhook
-            adapter = get_discord_adapter()
+            # Verify service exists
+            service_info = await client.get_service()
+            
+            # Initialize Discord adapter with the webhook URL
+            adapter = DiscordWebhookAdapter(webhook_url=webhook_url)
+            
+            # Configure webhook for the service
             adapter.register_service_webhook(
                 service_id=id,
                 webhook_url=webhook_url,
@@ -362,6 +419,9 @@ def webhook(id, webhook_url, username, levels):
         except Exception as e:
             click.echo(f"Error configuring webhook: {str(e)}")
             sys.exit(1)
+        finally:
+            if client:
+                await client.disconnect()
     
     return asyncio.run(run())
 

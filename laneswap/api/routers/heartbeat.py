@@ -1,8 +1,14 @@
+"""
+Health check router for the LaneSwap API.
+"""
+
 from typing import Dict, Any, Optional, List
+import logging
 from fastapi import APIRouter, HTTPException, Depends, Path, Query
 from pydantic import ValidationError
+from datetime import datetime
 
-from ...core.heartbeat import HeartbeatManager, get_manager
+from ...core.heartbeat import HeartbeatManager, get_manager, ServiceNotFoundError
 from ...models.heartbeat import (
     ServiceRegistration,
     ServiceHeartbeat,
@@ -13,11 +19,19 @@ from ...models.heartbeat import (
 )
 
 router = APIRouter()
+logger = logging.getLogger("laneswap.api.heartbeat")
 
 
 async def get_heartbeat_manager() -> HeartbeatManager:
     """Dependency to get the heartbeat manager instance."""
-    return get_manager()
+    manager = get_manager()
+    if manager is None:
+        logger.error("Failed to get heartbeat manager")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error: Heartbeat manager not initialized"
+        )
+    return manager
 
 
 @router.post(
@@ -27,18 +41,20 @@ async def get_heartbeat_manager() -> HeartbeatManager:
 )
 async def register_service(
     service: ServiceRegistration,
-    manager: HeartbeatManager = Depends(get_manager)
+    manager: HeartbeatManager = Depends(get_heartbeat_manager)
 ):
     """Register a new service for heartbeat monitoring."""
     try:
+        logger.debug(f"Registering service: {service.dict(exclude_none=True)}")
         service_id = await manager.register_service(
             service_name=service.service_name,
             service_id=service.service_id,
             metadata=service.metadata
         )
+        logger.info(f"Service registered successfully with ID: {service_id}")
         return {"service_id": service_id}
     except Exception as e:
-        logger.error(f"Error registering service: {str(e)}")
+        logger.error(f"Error registering service: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to register service: {str(e)}")
 
 
@@ -63,15 +79,23 @@ async def send_heartbeat(
         Updated service status
     """
     try:
-        result = await manager.send_heartbeat(
+        # Send the heartbeat
+        await manager.send_heartbeat(
             service_id=service_id,
             status=heartbeat.status,
             message=heartbeat.message,
             metadata=heartbeat.metadata
         )
         
-        return result
-    except ValueError as e:
+        # Get and return the updated service status
+        service = await manager.get_service(service_id)
+        
+        # Convert datetime fields to ISO format strings
+        if isinstance(service.get("last_heartbeat"), datetime):
+            service["last_heartbeat"] = service["last_heartbeat"].isoformat()
+        
+        return service
+    except ServiceNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process heartbeat: {str(e)}")
@@ -96,9 +120,14 @@ async def get_service_status(
         Service status information
     """
     try:
-        result = await manager.get_service_status(service_id)
-        return result
-    except ValueError as e:
+        service = await manager.get_service(service_id)
+        
+        # Convert datetime fields to ISO format strings
+        if isinstance(service.get("last_heartbeat"), datetime):
+            service["last_heartbeat"] = service["last_heartbeat"].isoformat()
+        
+        return service
+    except ServiceNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get service status: {str(e)}")
@@ -120,6 +149,11 @@ async def get_all_services(
     """
     try:
         services = await manager.get_all_services()
+        
+        # Convert datetime fields to ISO format strings
+        for service in services.values():
+            if isinstance(service.get("last_heartbeat"), datetime):
+                service["last_heartbeat"] = service["last_heartbeat"].isoformat()
         
         # Count services by status
         status_counts = {}

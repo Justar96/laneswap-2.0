@@ -1,7 +1,7 @@
 from typing import Dict, Any, Optional, List
 import logging
 import aiohttp
-from datetime import datetime
+from datetime import datetime, UTC
 
 from .base import NotifierAdapter
 from ..models.heartbeat import HeartbeatStatus
@@ -152,7 +152,7 @@ class DiscordWebhookAdapter(NotifierAdapter):
             "title": title,
             "description": message,
             "color": color,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "fields": []
         }
         

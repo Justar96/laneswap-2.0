@@ -11,7 +11,7 @@ import inspect
 import functools
 import logging
 from typing import Dict, Any, Optional, List, Callable, Union, TypeVar
-from datetime import datetime
+from datetime import datetime, UTC, timedelta
 import uuid
 import traceback
 
@@ -71,7 +71,7 @@ class ProgressTracker:
         if not execution_id:
             execution_id = str(uuid.uuid4())
             
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
         
         self.executions[execution_id] = {
             "id": execution_id,
@@ -131,7 +131,7 @@ class ProgressTracker:
                 metadata={"auto_created": True}
             )
             
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         
         step_info = {
             "timestamp": timestamp,
@@ -183,7 +183,7 @@ class ProgressTracker:
             logger.warning(f"Execution ID {execution_id} not found")
             return {}
             
-        end_time = datetime.utcnow()
+        end_time = datetime.now(UTC)
         start_time = self.executions[execution_id]["start_time"]
         duration = (end_time - start_time).total_seconds()
         
@@ -235,7 +235,7 @@ class ProgressTracker:
             logger.warning(f"Execution ID {execution_id} not found")
             return {}
             
-        end_time = datetime.utcnow()
+        end_time = datetime.now(UTC)
         start_time = self.executions[execution_id]["start_time"]
         duration = (end_time - start_time).total_seconds()
         

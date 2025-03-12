@@ -16,19 +16,19 @@ DEFAULT_CONFIG = {
     "CORS_ORIGINS": ["*"],
     
     # MongoDB configuration
-    "MONGODB_URL": "mongodb://localhost:27017",
-    "MONGODB_DATABASE": "laneswap",
+    "MONGODB_URL": os.getenv("LANESWAP_MONGODB_URI", "mongodb://localhost:27017"),
+    "MONGODB_DATABASE": os.getenv("LANESWAP_MONGODB_NAME", "laneswap"),
     "MONGODB_HEARTBEATS_COLLECTION": "heartbeats",
     "MONGODB_ERRORS_COLLECTION": "errors",
     
     # Discord webhook configuration
-    "DISCORD_WEBHOOK_URL": "",
+    "DISCORD_WEBHOOK_URL": os.getenv("LANESWAP_DISCORD_WEBHOOK", ""),
     "DISCORD_WEBHOOK_USERNAME": "LaneSwap Monitor",
     "DISCORD_WEBHOOK_AVATAR_URL": None,
     
     # Heartbeat configuration
-    "HEARTBEAT_CHECK_INTERVAL": 30,
-    "HEARTBEAT_STALE_THRESHOLD": 60,
+    "HEARTBEAT_CHECK_INTERVAL": int(os.getenv("LANESWAP_CHECK_INTERVAL", "30")),
+    "HEARTBEAT_STALE_THRESHOLD": int(os.getenv("LANESWAP_STALE_THRESHOLD", "60")),
     
     # URL configuration for client and web monitor
     "API_URL": "http://localhost:8000",
@@ -63,8 +63,9 @@ class MongoDBSettings(BaseModel):
     heartbeats_collection: str = Field("heartbeats", description="Heartbeats collection name")
     errors_collection: str = Field("errors", description="Errors collection name")
     
-    @validator("connection_string")
-    def validate_connection_string(cls, v):
+    @field_validator("connection_string")
+    @classmethod
+    def validate_connection_string(cls, v: str) -> str:
         if not v or not v.startswith(("mongodb://", "mongodb+srv://")):
             raise ValueError("Invalid MongoDB connection string format")
         return v
@@ -76,8 +77,9 @@ class DiscordSettings(BaseModel):
     username: str = Field("Laneswap Heartbeat Monitor", description="Webhook username")
     avatar_url: Optional[str] = Field(None, description="Webhook avatar URL")
     
-    @validator("webhook_url")
-    def validate_webhook_url(cls, v):
+    @field_validator("webhook_url")
+    @classmethod
+    def validate_webhook_url(cls, v: str) -> str:
         if v and not v.startswith(("https://discord.com/api/webhooks/", "https://discordapp.com/api/webhooks/")):
             raise ValueError("Invalid Discord webhook URL format")
         return v
@@ -206,27 +208,29 @@ def get_settings() -> Settings:
     if _settings_instance is None:
         # Create MongoDB settings if URL is provided
         mongodb_settings = None
-        if CONFIG["MONGODB_URL"]:
+        mongodb_url = os.getenv("LANESWAP_MONGODB_URI")
+        if mongodb_url:
             mongodb_settings = MongoDBSettings(
-                connection_string=CONFIG["MONGODB_URL"],
-                database_name=CONFIG["MONGODB_DATABASE"],
+                connection_string=mongodb_url,
+                database_name=os.getenv("LANESWAP_MONGODB_NAME", "laneswap"),
                 heartbeats_collection=CONFIG["MONGODB_HEARTBEATS_COLLECTION"],
                 errors_collection=CONFIG["MONGODB_ERRORS_COLLECTION"]
             )
         
         # Create Discord settings if webhook URL is provided
         discord_settings = None
-        if CONFIG["DISCORD_WEBHOOK_URL"]:
+        discord_url = os.getenv("LANESWAP_DISCORD_WEBHOOK")
+        if discord_url:
             discord_settings = DiscordSettings(
-                webhook_url=CONFIG["DISCORD_WEBHOOK_URL"],
+                webhook_url=discord_url,
                 username=CONFIG["DISCORD_WEBHOOK_USERNAME"],
                 avatar_url=CONFIG["DISCORD_WEBHOOK_AVATAR_URL"]
             )
         
         # Create heartbeat settings
         heartbeat_settings = HeartbeatSettings(
-            check_interval=CONFIG["HEARTBEAT_CHECK_INTERVAL"],
-            stale_threshold=CONFIG["HEARTBEAT_STALE_THRESHOLD"]
+            check_interval=int(os.getenv("LANESWAP_CHECK_INTERVAL", "30")),
+            stale_threshold=int(os.getenv("LANESWAP_STALE_THRESHOLD", "60"))
         )
         
         # Create API settings
