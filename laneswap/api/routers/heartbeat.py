@@ -45,7 +45,7 @@ async def register_service(
 ):
     """Register a new service for heartbeat monitoring."""
     try:
-        logger.debug(f"Registering service: {service.dict(exclude_none=True)}")
+        logger.debug(f"Registering service: {service.model_dump(exclude_none=True)}")
         service_id = await manager.register_service(
             service_name=service.service_name,
             service_id=service.service_id,

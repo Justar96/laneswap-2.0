@@ -1,6 +1,6 @@
 from typing import Dict, Any, Optional
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -41,7 +41,7 @@ async def log_error(
         
     # Create error log entry
     error_data = {
-        "timestamp": datetime.utcnow(),
+        "timestamp": datetime.now(UTC),
         "service_id": service_id,
         "error_type": error_type,
         "message": message,
@@ -94,7 +94,7 @@ def add_error_handlers(app: FastAPI) -> None:
         
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content=error_response.dict()
+            content=error_response.model_dump()
         )
         
     @app.exception_handler(Exception)
@@ -120,5 +120,5 @@ def add_error_handlers(app: FastAPI) -> None:
         
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=error_response.dict()
+            content=error_response.model_dump()
         )

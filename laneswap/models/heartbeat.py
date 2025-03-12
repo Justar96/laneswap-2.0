@@ -2,9 +2,10 @@
 Models for heartbeat monitoring.
 """
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Annotated
 from datetime import datetime, UTC
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+from pydantic.json import timedelta_isoformat
 
 from ..core.types import HeartbeatStatus
 
@@ -42,10 +43,25 @@ class ServiceStatus(BaseModel):
     last_heartbeat: Optional[datetime] = None
     events: List[Dict[str, Any]] = Field(default_factory=list)
 
-    class Config:
-        json_encoders = {
-            datetime: lambda dt: dt.isoformat()
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "service-123",
+                "name": "Example Service",
+                "status": "healthy",
+                "message": "Service is running normally",
+                "metadata": {"version": "1.0.0"},
+                "created_at": "2023-01-01T00:00:00+00:00",
+                "last_heartbeat": "2023-01-01T00:05:00+00:00",
+                "events": []
+            }
         }
+    )
+    
+    def model_dump_json(self, **kwargs):
+        """Custom JSON serialization to handle datetime objects."""
+        kwargs.setdefault("indent", 2)
+        return super().model_dump_json(**kwargs)
 
 
 class MultiServiceStatus(BaseModel):

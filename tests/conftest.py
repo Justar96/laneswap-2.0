@@ -4,7 +4,7 @@ import asyncio
 import pytest
 from typing import Dict, Any, Optional, List
 import os
-from datetime import datetime
+from datetime import datetime, UTC
 
 from laneswap.core.heartbeat import HeartbeatManager, get_manager
 from laneswap.models.heartbeat import HeartbeatStatus
@@ -84,7 +84,7 @@ class MockNotifierAdapter:
             "message": message,
             "service_info": service_info,
             "level": level,
-            "timestamp": datetime.utcnow()
+            "timestamp": datetime.now(UTC)
         })
         return True
 

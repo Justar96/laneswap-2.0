@@ -6,6 +6,7 @@ import pytest
 import asyncio
 import os
 from datetime import datetime
+import aiohttp
 
 from laneswap.core.heartbeat import (
     HeartbeatManager,
@@ -214,7 +215,7 @@ async def test_full_flow_with_discord():
 
 
 @pytest.mark.skipif(
-    "MONGODB_URI" not in os.environ or True,  # Always skip for now
+    "MONGODB_URI" not in os.environ,
     reason="MongoDB URI not provided or API server not running"
 )
 @pytest.mark.asyncio
@@ -232,8 +233,14 @@ async def test_client_integration():
         stale_threshold=5
     )
     
-    # Start the API server in a separate process
-    # Note: In a real test, you would start the API server here
+    # Check if API server is running
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("http://localhost:8000/api/health") as response:
+                if response.status != 200:
+                    pytest.skip("API server is not running or not responding correctly")
+    except aiohttp.ClientError:
+        pytest.skip("API server is not running or not accessible")
     
     try:
         # Create a client

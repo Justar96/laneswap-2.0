@@ -187,12 +187,12 @@ class LaneswapAsyncClient:
         )
         
         logger.debug(f"Registering service at {self.api_base_url}/services")
-        logger.debug(f"Registration data: {registration.dict(exclude_none=True)}")
+        logger.debug(f"Registration data: {registration.model_dump(exclude_none=True)}")
         
         try:
             async with self._session.post(
                 f"{self.api_base_url}/services",
-                json=registration.dict(exclude_none=True),
+                json=registration.model_dump(exclude_none=True),
                 timeout=30  # Increase timeout for registration
             ) as response:
                 response_text = await response.text()
@@ -262,7 +262,7 @@ class LaneswapAsyncClient:
         try:
             async with self._session.post(
                 f"{self.api_base_url}/services/{self.service_id}/heartbeat",
-                json=heartbeat.dict(exclude_none=True)
+                json=heartbeat.model_dump(exclude_none=True)
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
