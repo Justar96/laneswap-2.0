@@ -3,4 +3,4 @@
 from .async_client import LaneswapAsyncClient
 from .sync_client import LaneswapSyncClient
 
-__all__ = ["LaneswapAsyncClient", "LaneswapSyncClient"] 
+__all__ = ["LaneswapAsyncClient", "LaneswapSyncClient"]

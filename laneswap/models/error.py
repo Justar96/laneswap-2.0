@@ -2,8 +2,10 @@
 Models for error handling.
 """
 
-from typing import Dict, Any, Optional
-from datetime import datetime, UTC
+import time
+from datetime import UTC, datetime
+from typing import Any, Dict, Optional
+
 from pydantic import BaseModel, Field
 
 

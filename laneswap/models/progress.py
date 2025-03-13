@@ -2,11 +2,13 @@
 Models for progress tracking.
 """
 
-from typing import Dict, Any, Optional, List, Union
 from datetime import datetime
+from typing import Any, Dict, List, Optional, Union
+
 from pydantic import BaseModel, Field
 
 from ..core.types import ProgressStatus
+
 
 class ExecutionStep(BaseModel):
     """Information about a step in a function execution."""
@@ -43,4 +45,4 @@ class ExecutionStatistics(BaseModel):
     status_counts: Dict[str, int] = Field(default_factory=dict)
     function_counts: Dict[str, int] = Field(default_factory=dict)
     avg_duration: float = 0
-    success_rate: float = 0 
+    success_rate: float = 0

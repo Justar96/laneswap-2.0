@@ -162,3 +162,16 @@ cython_debug/
 .pypirc
 .env
 .cursor
+
+# Fix scripts (keep only the essential ones)
+fix_imports.py
+fix_import_order.py
+fix_simple_issues.py
+fix_linting_issues.py
+fix_missing_imports.py
+fix_logging_fstrings.py
+fix_unnecessary_pass.py
+fix_missing_json_imports.py
+# Keep these fix scripts
+# fix_broken_fstrings.py
+# fix_linting.py

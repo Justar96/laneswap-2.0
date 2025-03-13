@@ -2,9 +2,10 @@
 Common types used across the LaneSwap system.
 """
 
-from enum import Enum
-from typing import Dict, Any, Optional, List, Union, Callable
 from datetime import datetime
+from enum import Enum
+from typing import Any, Callable, List, Optional, Union
+
 
 class HeartbeatStatus(str, Enum):
     """Enum representing possible service health statuses."""
@@ -23,4 +24,4 @@ class ProgressStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     TIMEOUT = "timeout"
-    CANCELED = "canceled" 
+    CANCELED = "canceled"

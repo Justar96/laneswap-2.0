@@ -5,9 +5,9 @@ This module provides terminal-based user interfaces for monitoring and interacti
 with LaneSwap services.
 """
 
-from .monitor import TerminalMonitor, start_monitor
+from .ascii_art import FOOTER, HEADER, LOGO
 from .colors import Color, colored_text
-from .ascii_art import LOGO, HEADER, FOOTER
+from .monitor import TerminalMonitor, start_monitor
 
 __all__ = [
     "TerminalMonitor",
@@ -17,4 +17,4 @@ __all__ = [
     "LOGO",
     "HEADER",
     "FOOTER"
-] 
+]

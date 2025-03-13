@@ -5,7 +5,7 @@ FastAPI application for the LaneSwap service.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import heartbeat, health_check
+from .routers import health_check, heartbeat
 
 app = FastAPI(
     title="LaneSwap API",
@@ -34,4 +34,4 @@ async def root():
         "name": "LaneSwap API",
         "version": "2.0.0",
         "status": "operational"
-    } 
+    }

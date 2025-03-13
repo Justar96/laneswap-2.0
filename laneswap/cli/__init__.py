@@ -1,1 +1,1 @@
-"""Command-line interface for LaneSwap.""" 
+"""Command-line interface for LaneSwap."""

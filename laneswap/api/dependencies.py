@@ -1,7 +1,6 @@
 """Dependency injection for the LaneSwap API."""
 
 from fastapi import Depends, HTTPException, status
-from typing import Optional
 
 from ..core.heartbeat import HeartbeatManager, get_manager
 
@@ -28,4 +27,4 @@ async def validate_service_exists(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Service with ID {service_id} not found"
         )
-    return service_id 
+    return service_id

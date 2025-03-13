@@ -2,10 +2,11 @@
 Models for heartbeat monitoring.
 """
 
-from typing import Dict, Any, Optional, List, Annotated
-from datetime import datetime, UTC
-from pydantic import BaseModel, Field, ConfigDict
-from pydantic.json import timedelta_isoformat
+import time
+from datetime import UTC, datetime
+from typing import Annotated, Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..core.types import HeartbeatStatus
 
@@ -57,7 +58,7 @@ class ServiceStatus(BaseModel):
             }
         }
     )
-    
+
     def model_dump_json(self, **kwargs):
         """Custom JSON serialization to handle datetime objects."""
         kwargs.setdefault("indent", 2)

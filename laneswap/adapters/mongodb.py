@@ -1,19 +1,21 @@
-from typing import Dict, Any, Optional, List
-import logging
-from datetime import datetime, UTC
-from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo.errors import PyMongoError, OperationFailure
 import asyncio
+import logging
+import time
+from datetime import UTC, datetime
+from typing import Any, Dict, List, Optional
 
-from .base import StorageAdapter
+from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import OperationFailure, PyMongoError
+
 from ..models.error import ErrorLog
+from .base import StorageAdapter
 
 logger = logging.getLogger("laneswap")
 
 
 class MongoDBAdapter(StorageAdapter):
     """MongoDB adapter for storing heartbeat and error data."""
-    
+
     def __init__(
         self,
         connection_string: str,
@@ -23,7 +25,7 @@ class MongoDBAdapter(StorageAdapter):
     ):
         """
         Initialize the MongoDB adapter.
-        
+
         Args:
             connection_string: MongoDB connection string (including credentials)
             database_name: Name of the database to use
@@ -40,20 +42,20 @@ class MongoDBAdapter(StorageAdapter):
         self.errors_collection_name = errors_collection
         self._initialized = False
         self.logger = logging.getLogger("laneswap")
-        
+
     async def initialize(self) -> None:
         """
         Initialize the MongoDB connection.
-        
+
         This method must be called before using any other methods.
         """
         if self._initialized:
             return
-            
+
         try:
             # Import motor here to avoid dependency issues
             import motor.motor_asyncio
-            
+
             # Create client
             self.client = motor.motor_asyncio.AsyncIOMotorClient(
                 self.connection_string,
@@ -62,46 +64,46 @@ class MongoDBAdapter(StorageAdapter):
                 maxIdleTimeMS=30000,
                 serverSelectionTimeoutMS=5000
             )
-            
+
             # Get database and collections
             self.db = self.client[self.database_name]
             self.heartbeats_collection = self.db[self.heartbeats_collection_name]
             self.errors_collection = self.db[self.errors_collection_name]
-            
+
             # Create indexes with error handling
             try:
                 await self.heartbeats_collection.create_index("id", unique=True)
             except OperationFailure as e:
                 # If the error is due to an index conflict, log and continue
                 if "IndexOptionsConflict" in str(e) or "already exists" in str(e):
-                    logger.warning(f"Index 'id' already exists with different options: {str(e)}")
+                    logger.warning("Index 'id' already exists with different options: %s", str(e))
                 else:
                     raise
-                
+
             try:
                 await self.errors_collection.create_index("service_id")
             except OperationFailure as e:
                 # If the error is due to an index conflict, log and continue
                 if "IndexOptionsConflict" in str(e) or "already exists" in str(e):
-                    logger.warning(f"Index 'service_id' already exists with different options: {str(e)}")
+                    logger.warning("Index 'service_id' already exists with different options: %s", str(e))
                 else:
                     raise
-                
+
             try:
                 await self.errors_collection.create_index("timestamp")
             except OperationFailure as e:
                 # If the error is due to an index conflict, log and continue
                 if "IndexOptionsConflict" in str(e) or "already exists" in str(e):
-                    logger.warning(f"Index 'timestamp' already exists with different options: {str(e)}")
+                    logger.warning("Index 'timestamp' already exists with different options: %s", str(e))
                 else:
                     raise
-            
+
             self._initialized = True
-            logger.info(f"MongoDB adapter initialized: {self.database_name}")
+            logger.info("MongoDB adapter initialized: %s", self.database_name)
         except Exception as e:
-            logger.error(f"Failed to initialize MongoDB adapter: {str(e)}")
+            logger.error("Failed to initialize MongoDB adapter: %s", str(e))
             raise
-    
+
     async def close(self) -> None:
         """Close the MongoDB connection."""
         if self.client:
@@ -112,7 +114,7 @@ class MongoDBAdapter(StorageAdapter):
             self.errors_collection = None
             self._initialized = False
             logger.info("MongoDB connection closed")
-    
+
     async def _ensure_initialized(self) -> None:
         """Ensure the adapter is initialized."""
         if not self._initialized:
@@ -123,14 +125,14 @@ class MongoDBAdapter(StorageAdapter):
         if self.client:
             logger.debug("MongoDB client already exists, reusing")
             return True
-        
+
         # Mask sensitive connection string details
         masked_connection = self._mask_connection_string(self.connection_string)
-        logger.info(f"Connecting to MongoDB: {masked_connection}")
-        
+        logger.info("Connecting to MongoDB: %s", masked_connection)
+
         max_retries = 3
         retry_delay = 1  # seconds
-        
+
         for attempt in range(1, max_retries + 1):
             try:
                 # Add connection pooling settings
@@ -141,20 +143,20 @@ class MongoDBAdapter(StorageAdapter):
                     maxIdleTimeMS=30000,
                     serverSelectionTimeoutMS=5000
                 )
-                
+
                 # Test the connection
                 self.db = self.client[self.database_name]
                 await self.db.command("ping")
-                logger.info(f"MongoDB connection established (attempt {attempt})")
+                logger.info("MongoDB connection established (attempt %s)", attempt)
                 return True
             except PyMongoError as e:
                 if attempt == max_retries:
-                    logger.error(f"Failed to connect to MongoDB after {max_retries} attempts: {str(e)}")
+                    logger.error("Failed to connect to MongoDB after %s attempts: %s", max_retries, str(e))
                     raise
                 else:
-                    logger.warning(f"MongoDB connection attempt {attempt} failed: {str(e)}. Retrying in {retry_delay}s...")
+                    logger.warning("MongoDB connection attempt %s failed: %s. Retrying in %ss...", attempt, str(e), retry_delay)
                     await asyncio.sleep(retry_delay)
-                
+
     async def store_heartbeat(self, service_id: str, heartbeat_data: dict) -> bool:
         """Store a heartbeat in MongoDB."""
         try:
@@ -177,24 +179,24 @@ class MongoDBAdapter(StorageAdapter):
                 {"$set": heartbeat_data},
                 upsert=True
             )
-            self.logger.debug(f"Stored heartbeat for service {service_id}")
+            self.logger.debug("Stored heartbeat for service %s", service_id)
             return True
         except Exception as e:
-            self.logger.error(f"Failed to store heartbeat for service {service_id}: {str(e)}")
+            self.logger.error("Failed to store heartbeat for service %s: %s", service_id, str(e))
             return False
-            
+
     async def get_heartbeat(self, service_id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve heartbeat data from MongoDB.
-        
+
         Args:
             service_id: Service identifier
-            
+
         Returns:
             Optional[Dict[str, Any]]: Heartbeat data or None if not found
         """
         await self._ensure_initialized()
-        
+
         try:
             result = await self.heartbeats_collection.find_one({"id": service_id})
             if result:
@@ -203,18 +205,18 @@ class MongoDBAdapter(StorageAdapter):
                 return result
             return None
         except Exception as e:
-            logger.error(f"Error retrieving heartbeat: {str(e)}")
+            logger.error("Error retrieving heartbeat: %s", str(e))
             return None
-            
+
     async def get_all_heartbeats(self) -> Dict[str, Dict[str, Any]]:
         """
         Retrieve all heartbeat data from MongoDB.
-        
+
         Returns:
             Dict[str, Dict[str, Any]]: Dictionary mapping service IDs to heartbeat data
         """
         await self._ensure_initialized()
-        
+
         try:
             result = {}
             async for doc in self.heartbeats_collection.find():
@@ -225,37 +227,37 @@ class MongoDBAdapter(StorageAdapter):
                     result[service_id] = doc
             return result
         except Exception as e:
-            logger.error(f"Error retrieving all heartbeats: {str(e)}")
+            logger.error("Error retrieving all heartbeats: %s", str(e))
             return {}
-            
+
     async def store_error(self, error_data: Dict[str, Any]) -> bool:
         """
         Store error information in MongoDB.
-        
+
         Args:
             error_data: Error information to store
-            
+
         Returns:
             bool: True if data was stored successfully
         """
         await self._ensure_initialized()
-        
+
         try:
             # Convert datetime objects to strings for MongoDB
             error_data_copy = self._prepare_for_mongodb(error_data)
-            
+
             # Ensure timestamp is set
             if "timestamp" not in error_data_copy:
                 error_data_copy["timestamp"] = datetime.now(UTC)
-            
+
             # Insert the document
             result = await self.errors_collection.insert_one(error_data_copy)
-            
+
             return result.acknowledged
         except Exception as e:
-            logger.error(f"Error storing error: {str(e)}")
+            logger.error("Error storing error: %s", str(e))
             return False
-            
+
     async def get_errors(
         self,
         service_id: Optional[str] = None,
@@ -264,56 +266,56 @@ class MongoDBAdapter(StorageAdapter):
     ) -> List[Dict[str, Any]]:
         """
         Retrieve error logs from MongoDB.
-        
+
         Args:
             service_id: Optional service identifier to filter by
             limit: Maximum number of errors to retrieve
             skip: Number of errors to skip (for pagination)
-            
+
         Returns:
             List[Dict[str, Any]]: List of error logs
         """
         await self._ensure_initialized()
-        
+
         try:
             # Build query
             query = {}
             if service_id:
                 query["service_id"] = service_id
-            
+
             # Execute query
             cursor = self.errors_collection.find(query)
-            
+
             # Sort by timestamp descending
             cursor = cursor.sort("timestamp", -1)
-            
+
             # Apply pagination
             cursor = cursor.skip(skip).limit(limit)
-            
+
             # Convert results
             result = []
             async for doc in cursor:
                 # Convert MongoDB _id to string and remove it
                 doc = self._prepare_from_mongodb(doc)
                 result.append(doc)
-            
+
             return result
         except Exception as e:
-            logger.error(f"Error retrieving errors: {str(e)}")
+            logger.error("Error retrieving errors: %s", str(e))
             return []
-            
+
     def _prepare_for_mongodb(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Prepare data for MongoDB storage by handling special types.
-        
+
         Args:
             data: Data to prepare
-            
+
         Returns:
             Dict[str, Any]: Prepared data
         """
         result = {}
-        
+
         for key, value in data.items():
             if isinstance(value, dict):
                 result[key] = self._prepare_for_mongodb(value)
@@ -331,28 +333,28 @@ class MongoDBAdapter(StorageAdapter):
             else:
                 # Convert other types to string
                 result[key] = str(value)
-                
+
         return result
 
     def _prepare_from_mongodb(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Prepare data from MongoDB for use.
-        
+
         Args:
             data: Data to prepare
-            
+
         Returns:
             Dict[str, Any]: Prepared data
         """
         # Create a deep copy to avoid modifying the original
         import copy
         result = copy.deepcopy(data)
-        
+
         # Convert MongoDB _id to string and remove it
         if "_id" in result:
             result["_id"] = str(result["_id"])
             del result["_id"]
-        
+
         # Convert string timestamps to datetime objects
         for key, value in result.items():
             if isinstance(value, str) and key in ["timestamp", "created_at", "updated_at", "last_heartbeat"]:
@@ -367,7 +369,7 @@ class MongoDBAdapter(StorageAdapter):
                     self._prepare_from_mongodb(item) if isinstance(item, dict) else item
                     for item in value
                 ]
-        
+
         return result
 
     async def disconnect(self):
@@ -381,40 +383,40 @@ class MongoDBAdapter(StorageAdapter):
     async def store_errors_bulk(self, error_logs: List[Dict[str, Any]]) -> bool:
         """
         Store multiple error logs in a single operation.
-        
+
         Args:
             error_logs: List of error information to store
-            
+
         Returns:
             bool: True if data was stored successfully
         """
         if not error_logs:
             return True
-            
+
         if self.db is None:
             await self.connect()
-            
+
         try:
             # Prepare all documents for MongoDB
             documents = []
             current_time = datetime.now(UTC)
-            
+
             for error in error_logs:
                 data = self._prepare_for_mongodb(error)
                 if "stored_at" not in data:
                     data["stored_at"] = current_time
                 documents.append(data)
-                
+
             result = await self.db[self.errors_collection].insert_many(documents)
             return result.acknowledged
         except PyMongoError as e:
-            logger.error(f"Error storing bulk error logs in MongoDB: {str(e)}")
+            logger.error("Error storing bulk error logs in MongoDB: %s", str(e))
             return False
 
     async def health_check(self) -> bool:
         """
         Check if the MongoDB connection is healthy.
-        
+
         Returns:
             bool: True if connection is healthy
         """
@@ -423,57 +425,57 @@ class MongoDBAdapter(StorageAdapter):
                 await self.connect()
             except Exception:
                 return False
-                
+
         try:
             # Run a simple command to check connection
             await self.db.command("ping")
             return True
         except PyMongoError as e:
-            logger.error(f"MongoDB health check failed: {str(e)}")
+            logger.error("MongoDB health check failed: %s", str(e))
             return False
 
     async def get_filtered_heartbeats(
-        self, 
+        self,
         filter_criteria: Dict[str, Any],
         limit: int = 100,
         skip: int = 0
     ) -> List[Dict[str, Any]]:
         """
         Retrieve heartbeats matching specific criteria.
-        
+
         Args:
             filter_criteria: MongoDB query filter
             limit: Maximum number of results
             skip: Number of results to skip
-            
+
         Returns:
             List[Dict[str, Any]]: Filtered heartbeat data
         """
         if self.db is None:
             await self.connect()
-            
+
         result = []
         try:
             cursor = self.db[self.heartbeats_collection].find(
                 filter_criteria
             ).sort("last_seen", -1).skip(skip).limit(limit)
-            
+
             async for document in cursor:
                 document.pop("_id", None)
                 result.append(document)
-                
+
             return result
         except PyMongoError as e:
-            logger.error(f"Error retrieving filtered heartbeats: {str(e)}")
+            logger.error("Error retrieving filtered heartbeats: %s", str(e))
             return []
 
     def _mask_connection_string(self, connection_string: str) -> str:
         """
         Mask sensitive information in MongoDB connection string.
-        
+
         Args:
             connection_string: Original connection string
-            
+
         Returns:
             str: Connection string with credentials masked
         """
@@ -504,5 +506,5 @@ class MongoDBAdapter(StorageAdapter):
                 return heartbeat
             return None
         except Exception as e:
-            logger.error(f"Failed to get heartbeat for service {service_id}: {e}")
+            logger.error("Failed to get heartbeat for service %s: %s", service_id, e)
             return None

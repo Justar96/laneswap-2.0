@@ -2,6 +2,6 @@
 LaneSwap API routers package.
 """
 
-from . import heartbeat, health_check
+from . import health_check, heartbeat
 
 __all__ = ["heartbeat", "health_check"]
