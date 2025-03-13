@@ -4,19 +4,63 @@ A lightweight, reliable service monitoring system for distributed applications b
 
 ## Overview
 
-LaneSwap Heartbeat is a Python library that provides real-time monitoring of service health in distributed systems. It allows services to send periodic heartbeats to indicate their operational status and automatically detects when services become unresponsive.
+LaneSwap is a Python library that provides real-time monitoring of service health in distributed systems. It allows services to send periodic heartbeats to indicate their operational status and automatically detects when services become unresponsive.
 
 ## Key Features
 
 - **Real-time Health Monitoring**: Track the operational status of all your services
 - **Automatic Stale Detection**: Identify services that have stopped sending heartbeats
 - **Terminal Dashboard**: Beautiful, colorful terminal UI for monitoring service health
+- **Progress Tracking**: Monitor long-running tasks with detailed progress updates
 - **Flexible Notifications**: Send alerts through various channels when service status changes
 - **Low Overhead**: Minimal impact on your services' performance
 - **Easy Integration**: Simple API for sending heartbeats from any service
 - **MongoDB Integration**: Persistent storage of heartbeat data
 - **Discord Notifications**: Real-time alerts via Discord webhooks
 - **Async Support**: Built with asyncio for high performance
+- **Comprehensive CLI**: Command-line tools for managing and monitoring services
+
+## System Architecture
+
+LaneSwap consists of several main components:
+
+1. **Core Module**: Contains the central heartbeat management system and configuration
+   - `heartbeat.py`: Core heartbeat management functionality
+   - `config.py`: Configuration management with environment variable support
+   - `progress.py`: Progress tracking for long-running tasks
+   - `validator.py`: System validation and health checking
+   - `types.py`: Type definitions and enums
+   - `exceptions.py`: Custom exception classes
+
+2. **API Server**: FastAPI-based server that receives heartbeats from services
+   - `main.py`: Main FastAPI application with lifespan management
+   - `server.py`: Server startup and configuration
+   - `routers/`: API endpoint definitions
+   - `middleware/`: Request/response middleware
+
+3. **Client Library**: Async client for sending heartbeats from your services
+   - `async_client.py`: Asynchronous client with context manager support
+
+4. **Adapters**: Pluggable storage and notification backends
+   - `mongodb.py`: MongoDB storage adapter
+   - `discord.py`: Discord webhook notification adapter
+   - `base.py`: Base adapter interfaces
+
+5. **Terminal Monitor**: Colorful terminal dashboard for monitoring service health
+   - `monitor.py`: Terminal UI implementation
+   - `colors.py`: Terminal color utilities
+   - `ascii_art.py`: ASCII art for terminal display
+
+6. **CLI**: Command-line interface for interacting with the system
+   - `commands.py`: Main CLI command definitions
+   - `service_commands.py`: Service-specific commands
+   - `terminal_monitor.py`: CLI for terminal monitor
+   - `validate.py`: Validation commands
+
+7. **Models**: Data models and schemas
+   - `heartbeat.py`: Heartbeat and service models
+   - `error.py`: Error logging models
+   - `progress.py`: Progress tracking models
 
 ## Quick Start
 
@@ -94,17 +138,6 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
-
-## System Architecture
-
-LaneSwap consists of several main components:
-
-1. **API Server**: FastAPI-based server that receives heartbeats from services and stores their status
-2. **Terminal Monitor**: Colorful terminal dashboard for monitoring service health in real-time
-3. **Client Library**: Async client for sending heartbeats from your services
-4. **Storage Adapters**: Pluggable storage backends (currently MongoDB)
-5. **Notification Adapters**: Pluggable notification systems (currently Discord)
-6. **CLI**: Command-line interface for interacting with the system
 
 ## Configuration
 
@@ -191,6 +224,47 @@ While the terminal monitor is running, you can use these keyboard controls:
 
 - **SPACE**: Pause/resume auto-refresh (useful for scrolling through service data)
 - **CTRL+C**: Exit the monitor
+
+## Progress Tracking
+
+LaneSwap includes a progress tracking system for monitoring long-running tasks:
+
+```python
+from laneswap.client.async_client import LaneswapAsyncClient
+import asyncio
+
+async def main():
+    async with LaneswapAsyncClient(
+        api_url="http://localhost:8000",
+        service_name="data-processor"
+    ) as client:
+        # Start a progress task
+        task_id = await client.start_progress(
+            task_name="Data Processing",
+            total_steps=100,
+            description="Processing large dataset"
+        )
+        
+        # Update progress as the task progresses
+        for i in range(100):
+            await client.update_progress(
+                task_id=task_id,
+                current_step=i+1,
+                status="running",
+                message=f"Processing item {i+1}/100"
+            )
+            await asyncio.sleep(0.1)
+        
+        # Complete the progress task
+        await client.complete_progress(
+            task_id=task_id,
+            status="completed",
+            message="Data processing completed successfully"
+        )
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
 
 ## System Check
 
@@ -393,6 +467,69 @@ Response:
 }
 ```
 
+### Track Progress
+
+```
+POST /api/progress
+```
+
+Request body:
+```json
+{
+  "service_id": "550e8400-e29b-41d4-a716-446655440000",
+  "task_name": "Data Processing",
+  "total_steps": 100,
+  "description": "Processing large dataset"
+}
+```
+
+Response:
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440001",
+  "service_id": "550e8400-e29b-41d4-a716-446655440000",
+  "task_name": "Data Processing",
+  "total_steps": 100,
+  "current_step": 0,
+  "status": "pending",
+  "created_at": "2023-09-01T12:00:00Z",
+  "updated_at": "2023-09-01T12:00:00Z",
+  "description": "Processing large dataset"
+}
+```
+
+### Update Progress
+
+```
+PUT /api/progress/{task_id}
+```
+
+Request body:
+```json
+{
+  "current_step": 50,
+  "status": "running",
+  "message": "Processing item 50/100"
+}
+```
+
+Response:
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440001",
+  "service_id": "550e8400-e29b-41d4-a716-446655440000",
+  "task_name": "Data Processing",
+  "total_steps": 100,
+  "current_step": 50,
+  "status": "running",
+  "created_at": "2023-09-01T12:00:00Z",
+  "updated_at": "2023-09-01T12:05:00Z",
+  "description": "Processing large dataset",
+  "message": "Processing item 50/100",
+  "percent_complete": 50
+}
+```
+
 ## Advanced Usage
 
 ### Using the Heartbeat Decorator
@@ -441,10 +578,14 @@ async def main():
     # The heartbeat system is now stopped
 ```
 
+## Integration Testing
+
+For information on running integration tests, see [INTEGRATION_TESTS.md](INTEGRATION_TESTS.md).
+
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+For information on contributing to LaneSwap, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
