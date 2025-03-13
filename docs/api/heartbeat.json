@@ -1,0 +1,349 @@
+{
+  "title": "Heartbeat API",
+  "description": "API endpoints for sending and managing heartbeats in LaneSwap",
+  "baseUrl": "/api",
+  "endpoints": [
+    {
+      "id": "send-heartbeat",
+      "path": "/services/{service_id}/heartbeat",
+      "method": "POST",
+      "title": "Send a Heartbeat",
+      "description": "Send a heartbeat for a service to indicate its operational status",
+      "parameters": [
+        {
+          "name": "service_id",
+          "in": "path",
+          "description": "ID of the service to send a heartbeat for",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {
+        "contentType": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "description": "Current status of the service",
+              "enum": ["healthy", "warning", "error", "critical", "unknown"],
+              "required": true
+            },
+            "message": {
+              "type": "string",
+              "description": "Message describing the current status",
+              "required": false
+            },
+            "metadata": {
+              "type": "object",
+              "description": "Additional metadata for the heartbeat",
+              "required": false
+            }
+          }
+        },
+        "example": {
+          "status": "healthy",
+          "message": "Service is running normally",
+          "metadata": {
+            "cpu_usage": 25,
+            "memory_usage": 150
+          }
+        }
+      },
+      "responses": [
+        {
+          "status": 200,
+          "description": "Heartbeat received successfully",
+          "contentType": "application/json",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "service_id": {
+                "type": "string",
+                "description": "Unique identifier for the service"
+              },
+              "status": {
+                "type": "string",
+                "description": "Current status of the service"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Timestamp when the heartbeat was received"
+              },
+              "message": {
+                "type": "string",
+                "description": "Message describing the current status",
+                "nullable": true
+              },
+              "metadata": {
+                "type": "object",
+                "description": "Additional metadata for the heartbeat"
+              }
+            }
+          },
+          "example": {
+            "service_id": "550e8400-e29b-41d4-a716-446655440000",
+            "status": "healthy",
+            "timestamp": "2023-09-01T12:01:00Z",
+            "message": "Service is running normally",
+            "metadata": {
+              "cpu_usage": 25,
+              "memory_usage": 150
+            }
+          }
+        },
+        {
+          "status": 404,
+          "description": "Service not found",
+          "contentType": "application/json",
+          "example": {
+            "detail": "Service not found"
+          }
+        },
+        {
+          "status": 400,
+          "description": "Invalid request",
+          "contentType": "application/json",
+          "example": {
+            "detail": "Invalid status value"
+          }
+        }
+      ],
+      "codeExamples": [
+        {
+          "language": "curl",
+          "code": "curl -X POST http://localhost:8000/api/services/550e8400-e29b-41d4-a716-446655440000/heartbeat \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"status\": \"healthy\", \"message\": \"Service is running normally\", \"metadata\": {\"cpu_usage\": 25, \"memory_usage\": 150}}'"
+        },
+        {
+          "language": "python",
+          "code": "import requests\n\nservice_id = \"550e8400-e29b-41d4-a716-446655440000\"\nresponse = requests.post(\n    f\"http://localhost:8000/api/services/{service_id}/heartbeat\",\n    json={\n        \"status\": \"healthy\",\n        \"message\": \"Service is running normally\",\n        \"metadata\": {\"cpu_usage\": 25, \"memory_usage\": 150}\n    }\n)\n\nheartbeat = response.json()\nprint(f\"Heartbeat sent: {heartbeat['status']}\")"
+        },
+        {
+          "language": "javascript",
+          "code": "const serviceId = '550e8400-e29b-41d4-a716-446655440000';\n\nfetch(`http://localhost:8000/api/services/${serviceId}/heartbeat`, {\n  method: 'POST',\n  headers: {\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify({\n    status: 'healthy',\n    message: 'Service is running normally',\n    metadata: { cpu_usage: 25, memory_usage: 150 }\n  })\n})\n.then(response => response.json())\n.then(heartbeat => console.log(`Heartbeat sent: ${heartbeat.status}`));"
+        }
+      ]
+    },
+    {
+      "id": "get-service-heartbeats",
+      "path": "/services/{service_id}/heartbeats",
+      "method": "GET",
+      "title": "Get Service Heartbeats",
+      "description": "Retrieve the heartbeat history for a specific service",
+      "parameters": [
+        {
+          "name": "service_id",
+          "in": "path",
+          "description": "ID of the service to retrieve heartbeats for",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "limit",
+          "in": "query",
+          "description": "Maximum number of heartbeats to return",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "default": 10
+          }
+        },
+        {
+          "name": "since",
+          "in": "query",
+          "description": "Only return heartbeats after this timestamp (ISO 8601 format)",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      ],
+      "responses": [
+        {
+          "status": 200,
+          "description": "List of heartbeats",
+          "contentType": "application/json",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "heartbeats": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "service_id": {
+                      "type": "string",
+                      "description": "Unique identifier for the service"
+                    },
+                    "status": {
+                      "type": "string",
+                      "description": "Status of the service at the time of the heartbeat"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "Timestamp when the heartbeat was received"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Message describing the status",
+                      "nullable": true
+                    },
+                    "metadata": {
+                      "type": "object",
+                      "description": "Additional metadata for the heartbeat"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "example": {
+            "heartbeats": [
+              {
+                "service_id": "550e8400-e29b-41d4-a716-446655440000",
+                "status": "healthy",
+                "timestamp": "2023-09-01T12:05:00Z",
+                "message": "Service is running normally",
+                "metadata": {
+                  "cpu_usage": 25,
+                  "memory_usage": 150
+                }
+              },
+              {
+                "service_id": "550e8400-e29b-41d4-a716-446655440000",
+                "status": "healthy",
+                "timestamp": "2023-09-01T12:00:00Z",
+                "message": "Service is running normally",
+                "metadata": {
+                  "cpu_usage": 20,
+                  "memory_usage": 145
+                }
+              }
+            ]
+          }
+        },
+        {
+          "status": 404,
+          "description": "Service not found",
+          "contentType": "application/json",
+          "example": {
+            "detail": "Service not found"
+          }
+        }
+      ],
+      "codeExamples": [
+        {
+          "language": "curl",
+          "code": "curl -X GET http://localhost:8000/api/services/550e8400-e29b-41d4-a716-446655440000/heartbeats?limit=5"
+        },
+        {
+          "language": "python",
+          "code": "import requests\n\nservice_id = \"550e8400-e29b-41d4-a716-446655440000\"\nresponse = requests.get(\n    f\"http://localhost:8000/api/services/{service_id}/heartbeats\",\n    params={\"limit\": 5}\n)\n\nheartbeats = response.json()[\"heartbeats\"]\nfor heartbeat in heartbeats:\n    print(f\"{heartbeat['timestamp']}: {heartbeat['status']}\")"
+        },
+        {
+          "language": "javascript",
+          "code": "const serviceId = '550e8400-e29b-41d4-a716-446655440000';\n\nfetch(`http://localhost:8000/api/services/${serviceId}/heartbeats?limit=5`)\n  .then(response => response.json())\n  .then(data => {\n    data.heartbeats.forEach(heartbeat => {\n      console.log(`${heartbeat.timestamp}: ${heartbeat.status}`);\n    });\n  });"
+        }
+      ]
+    },
+    {
+      "id": "get-stale-services",
+      "path": "/services/stale",
+      "method": "GET",
+      "title": "Get Stale Services",
+      "description": "Retrieve a list of services that have not sent heartbeats recently",
+      "parameters": [
+        {
+          "name": "threshold",
+          "in": "query",
+          "description": "Time in seconds after which a service is considered stale",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "default": 60
+          }
+        }
+      ],
+      "responses": [
+        {
+          "status": 200,
+          "description": "List of stale services",
+          "contentType": "application/json",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "services": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "service_id": {
+                      "type": "string",
+                      "description": "Unique identifier for the service"
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "Name of the service"
+                    },
+                    "status": {
+                      "type": "string",
+                      "description": "Current status of the service"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "Timestamp when the service was created"
+                    },
+                    "last_heartbeat": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "Timestamp of the last heartbeat received",
+                      "nullable": true
+                    },
+                    "stale_for": {
+                      "type": "integer",
+                      "description": "Time in seconds since the service became stale"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "example": {
+            "services": [
+              {
+                "service_id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "my-service",
+                "status": "unknown",
+                "created_at": "2023-09-01T12:00:00Z",
+                "last_heartbeat": "2023-09-01T12:01:00Z",
+                "stale_for": 120
+              }
+            ]
+          }
+        }
+      ],
+      "codeExamples": [
+        {
+          "language": "curl",
+          "code": "curl -X GET http://localhost:8000/api/services/stale?threshold=120"
+        },
+        {
+          "language": "python",
+          "code": "import requests\n\nresponse = requests.get(\n    \"http://localhost:8000/api/services/stale\",\n    params={\"threshold\": 120}\n)\n\nstale_services = response.json()[\"services\"]\nfor service in stale_services:\n    print(f\"{service['name']}: stale for {service['stale_for']} seconds\")"
+        },
+        {
+          "language": "javascript",
+          "code": "fetch('http://localhost:8000/api/services/stale?threshold=120')\n  .then(response => response.json())\n  .then(data => {\n    data.services.forEach(service => {\n      console.log(`${service.name}: stale for ${service.stale_for} seconds`);\n    });\n  });"
+        }
+      ]
+    }
+  ]
+} 

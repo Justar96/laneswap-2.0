@@ -402,55 +402,180 @@ class LaneswapAsyncClient:
                 if port_match:
                     port = int(port_match.group(1))
                 
-                # Check if the monitor is already running
+                # Check if the port is already in use
                 if not is_port_in_use(port):
-                    logger.info(f"Web monitor not running on port {port}. Starting it...")
-                    
-                    # Start the monitor in a separate process
-                    monitor_script = Path(__file__).parent.parent / "examples" / "start_monitor.py"
-                    
-                    if not monitor_script.exists():
-                        logger.warning(f"Monitor script not found at {monitor_script}. Using module approach.")
-                        # Use the module approach as fallback
-                        cmd = [
-                            sys.executable, "-m", 
-                            "laneswap.examples.start_monitor",
-                            "--port", str(port),
-                            "--api-url", self.api_url,
-                            "--no-browser"
-                        ]
-                    else:
-                        cmd = [
-                            sys.executable, str(monitor_script),
-                            "--port", str(port),
-                            "--api-url", self.api_url,
-                            "--no-browser"
-                        ]
-                    
-                    # Start the process detached from this one
-                    try:
+                    # Start the monitor in a subprocess
+                    monitor_script = Path(__file__).parent.parent / "terminal" / "monitor.py"
+                    if monitor_script.exists():
+                        cmd = [sys.executable, str(monitor_script), "--api-url", self.api_url]
+                        if self.service_id:
+                            cmd.extend(["--service-id", self.service_id])
+                        
+                        # Start the process detached from the current process
                         if os.name == 'nt':  # Windows
                             subprocess.Popen(
-                                cmd, 
-                                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE
+                                cmd,
+                                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                                close_fds=True
                             )
                         else:  # Unix/Linux/Mac
                             subprocess.Popen(
                                 cmd,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                start_new_session=True
+                                start_new_session=True,
+                                close_fds=True
                             )
                         
-                        # Wait a moment for the server to start
-                        import time
-                        time.sleep(3)
-                        logger.info("Web monitor started in background process.")
-                    except Exception as e:
-                        logger.error(f"Failed to start web monitor: {str(e)}")
-            except ImportError as e:
-                logger.warning(f"Could not check/start web monitor: {str(e)}")
+                        logger.info(f"Started monitor on port {port}")
+            except Exception as e:
+                logger.warning(f"Failed to start monitor: {str(e)}")
         
-        return url 
+        return url
+    
+    # Progress tracking methods
+    async def start_progress(
+        self,
+        task_name: str,
+        total_steps: int,
+        description: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Start a progress tracking task.
+        
+        Args:
+            task_name: Name of the task
+            total_steps: Total number of steps in the task
+            description: Optional description of the task
+            metadata: Additional information about the task
+            
+        Returns:
+            str: Task ID
+        """
+        if not self.service_id:
+            raise ValueError("Service ID is required to start a progress task")
+            
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+            
+        data = {
+            "service_id": self.service_id,
+            "task_name": task_name,
+            "total_steps": total_steps,
+            "description": description,
+            "metadata": metadata or {}
+        }
+        
+        try:
+            async with self._session.post(
+                f"{self.api_base_url}/progress",
+                json=data
+            ) as response:
+                if response.status != 201:
+                    error_text = await response.text()
+                    raise RuntimeError(f"Failed to start progress task: {error_text}")
+                    
+                result = await response.json()
+                return result.get("task_id")
+        except aiohttp.ClientError as e:
+            error_msg = f"Network error when starting progress task: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
+    
+    async def update_progress(
+        self,
+        task_id: str,
+        current_step: int,
+        status: str = "running",
+        message: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Update the progress of a task.
+        
+        Args:
+            task_id: Task ID
+            current_step: Current step number
+            status: Task status
+            message: Optional status message
+            metadata: Additional information to include with the update
+            
+        Returns:
+            Dict[str, Any]: Response from the API
+        """
+        if not self.service_id:
+            raise ValueError("Service ID is required to update progress")
+            
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+            
+        data = {
+            "service_id": self.service_id,
+            "task_id": task_id,
+            "current_step": current_step,
+            "status": status,
+            "message": message,
+            "metadata": metadata or {}
+        }
+        
+        try:
+            async with self._session.put(
+                f"{self.api_base_url}/progress/{task_id}",
+                json=data
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise RuntimeError(f"Failed to update progress: {error_text}")
+                    
+                return await response.json()
+        except aiohttp.ClientError as e:
+            error_msg = f"Network error when updating progress: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
+    
+    async def complete_progress(
+        self,
+        task_id: str,
+        status: str = "completed",
+        message: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Mark a progress task as completed.
+        
+        Args:
+            task_id: Task ID
+            status: Final task status
+            message: Optional status message
+            metadata: Additional information to include with the update
+            
+        Returns:
+            Dict[str, Any]: Response from the API
+        """
+        if not self.service_id:
+            raise ValueError("Service ID is required to complete progress")
+            
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+            
+        data = {
+            "service_id": self.service_id,
+            "task_id": task_id,
+            "status": status,
+            "message": message,
+            "metadata": metadata or {}
+        }
+        
+        try:
+            async with self._session.put(
+                f"{self.api_base_url}/progress/{task_id}/complete",
+                json=data
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise RuntimeError(f"Failed to complete progress: {error_text}")
+                    
+                return await response.json()
+        except aiohttp.ClientError as e:
+            error_msg = f"Network error when completing progress: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e 

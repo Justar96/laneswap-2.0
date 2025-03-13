@@ -4,15 +4,26 @@ A lightweight, reliable service monitoring system for distributed applications b
 
 ## Overview
 
-LaneSwap is a Python library that provides real-time monitoring of service health in distributed systems. It allows services to send periodic heartbeats to indicate their operational status and automatically detects when services become unresponsive.
+LaneSwap is a Python library that helps you monitor the health of your applications and services. Think of it as a "health check" system that lets you know when something goes wrong with your services.
+
+### What is a Heartbeat?
+
+In distributed systems, a "heartbeat" is a periodic signal sent by a service to indicate that it's still running and healthy. It's similar to a person's heartbeat - as long as you can detect it, you know the person is alive.
+
+With LaneSwap:
+- Your services send regular "I'm alive and healthy" messages (heartbeats)
+- If a service stops sending heartbeats, LaneSwap detects this and can notify you
+- You can view the status of all your services in a colorful terminal dashboard
+
+This is especially useful in microservice architectures where you have many services running independently.
 
 ## Key Features
 
 - **Real-time Health Monitoring**: Track the operational status of all your services
-- **Automatic Stale Detection**: Identify services that have stopped sending heartbeats
+- **Automatic Stale Detection**: Get notified when services stop sending heartbeats
 - **Terminal Dashboard**: Beautiful, colorful terminal UI for monitoring service health
 - **Progress Tracking**: Monitor long-running tasks with detailed progress updates
-- **Flexible Notifications**: Send alerts through various channels when service status changes
+- **Flexible Notifications**: Get alerts via Discord when service status changes
 - **Low Overhead**: Minimal impact on your services' performance
 - **Easy Integration**: Simple API for sending heartbeats from any service
 - **MongoDB Integration**: Persistent storage of heartbeat data
@@ -20,51 +31,18 @@ LaneSwap is a Python library that provides real-time monitoring of service healt
 - **Async Support**: Built with asyncio for high performance
 - **Comprehensive CLI**: Command-line tools for managing and monitoring services
 
-## System Architecture
+## Documentation
 
-LaneSwap consists of several main components:
+- [API Documentation](laneswap/docs/API.md): Detailed information about the LaneSwap client API
+- [Troubleshooting Guide](laneswap/docs/TROUBLESHOOTING.md): Solutions for common issues
+- [Migration Guide](laneswap/docs/MIGRATION.md): Guide for migrating from incorrect usage patterns
+- [Example Applications](laneswap/examples/): Working examples of LaneSwap integration
 
-1. **Core Module**: Contains the central heartbeat management system and configuration
-   - `heartbeat.py`: Core heartbeat management functionality
-   - `config.py`: Configuration management with environment variable support
-   - `progress.py`: Progress tracking for long-running tasks
-   - `validator.py`: System validation and health checking
-   - `types.py`: Type definitions and enums
-   - `exceptions.py`: Custom exception classes
+## Quick Start Guide
 
-2. **API Server**: FastAPI-based server that receives heartbeats from services
-   - `main.py`: Main FastAPI application with lifespan management
-   - `server.py`: Server startup and configuration
-   - `routers/`: API endpoint definitions
-   - `middleware/`: Request/response middleware
+### 1. Installation
 
-3. **Client Library**: Async client for sending heartbeats from your services
-   - `async_client.py`: Asynchronous client with context manager support
-
-4. **Adapters**: Pluggable storage and notification backends
-   - `mongodb.py`: MongoDB storage adapter
-   - `discord.py`: Discord webhook notification adapter
-   - `base.py`: Base adapter interfaces
-
-5. **Terminal Monitor**: Colorful terminal dashboard for monitoring service health
-   - `monitor.py`: Terminal UI implementation
-   - `colors.py`: Terminal color utilities
-   - `ascii_art.py`: ASCII art for terminal display
-
-6. **CLI**: Command-line interface for interacting with the system
-   - `commands.py`: Main CLI command definitions
-   - `service_commands.py`: Service-specific commands
-   - `terminal_monitor.py`: CLI for terminal monitor
-   - `validate.py`: Validation commands
-
-7. **Models**: Data models and schemas
-   - `heartbeat.py`: Heartbeat and service models
-   - `error.py`: Error logging models
-   - `progress.py`: Progress tracking models
-
-## Quick Start
-
-### Installation
+Install LaneSwap using pip:
 
 ```bash
 pip install laneswap
@@ -76,72 +54,125 @@ For a complete installation with all dependencies:
 pip install laneswap[all]
 ```
 
-### Start the API Server
+### 2. Start the API Server
+
+The API server receives heartbeats from your services. Start it with:
 
 ```bash
 python -m laneswap.api.server
 ```
 
-This will start the API server on port 8000.
+This will start the API server on port 8000. You should see output indicating the server is running.
 
-### Command Line Options
+### 3. Monitor Your Services
+
+Start the terminal dashboard to see the status of your services:
 
 ```bash
-# Start the server
-laneswap server
-
-# List all registered services
-laneswap services list
-
-# Get details for a specific service
-laneswap services get <service-id>
-
-# Send a heartbeat for a service
-laneswap services heartbeat <service-id> --status healthy
-
-# Start the terminal monitor
 laneswap-term --api-url http://localhost:8000
 ```
 
-### Register a Service and Send Heartbeats
+### 4. Integrate LaneSwap into Your Application
+
+#### Using the Async Client (for async/await applications)
 
 ```python
 from laneswap.client.async_client import LaneswapAsyncClient
 import asyncio
 
 async def main():
-    # Create a client
+    # Create a client - this connects to the LaneSwap API server
     client = LaneswapAsyncClient(
-        api_url="http://localhost:8000",
-        service_name="my-service"
+        api_url="http://localhost:8000",  # URL of your LaneSwap API server
+        service_name="my-service",        # Name of your service
+        auto_heartbeat=True,              # Automatically send heartbeats
+        heartbeat_interval=30             # Send a heartbeat every 30 seconds
     )
     
-    # Connect to the API
+    # Connect to the API (registers your service)
     await client.connect()
     
-    # Send a heartbeat
-    await client.send_heartbeat(
-        status="healthy",
-        message="Service is running normally"
-    )
-    
-    # Use as a context manager
-    async with LaneswapAsyncClient(
-        api_url="http://localhost:8000",
-        service_name="another-service",
-        auto_heartbeat=True  # Automatically send heartbeats
-    ) as client:
-        # Do your work here
-        # Heartbeats will be sent automatically
-        pass
+    try:
+        # Your application logic here
+        print("Service is running...")
+        await asyncio.sleep(300)  # Run for 5 minutes
+    finally:
+        # Always close the client when done
+        await client.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+#### Using the Sync Client (for traditional Python applications)
+
+```python
+from laneswap.client.sync_client import LaneswapSyncClient
+import time
+
+# Create a client
+client = LaneswapSyncClient(
+    api_url="http://localhost:8000",  # URL of your LaneSwap API server
+    service_name="my-service",        # Name of your service
+    auto_heartbeat=True,              # Automatically send heartbeats
+    heartbeat_interval=30             # Send a heartbeat every 30 seconds
+)
+
+# Connect to the API (registers your service)
+client.connect()
+
+try:
+    # Your application logic here
+    print("Service is running...")
+    time.sleep(300)  # Run for 5 minutes
+finally:
+    # Always close the client when done
+    client.close()
+```
+
+#### Using Context Managers (recommended)
+
+For cleaner code, you can use context managers:
+
+```python
+# Async context manager
+async def run_service():
+    async with LaneswapAsyncClient(
+        api_url="http://localhost:8000",
+        service_name="my-service",
+        auto_heartbeat=True
+    ) as client:
+        # Your application logic here
+        print("Service is running...")
+        await asyncio.sleep(300)  # Run for 5 minutes
+        
+# Sync context manager
+def run_service():
+    with LaneswapSyncClient(
+        api_url="http://localhost:8000",
+        service_name="my-service",
+        auto_heartbeat=True
+    ) as client:
+        # Your application logic here
+        print("Service is running...")
+        time.sleep(300)  # Run for 5 minutes
+```
+
+## Common Issues and Troubleshooting
+
+If you encounter issues while using LaneSwap, please refer to our [Troubleshooting Guide](laneswap/docs/TROUBLESHOOTING.md) for solutions to common problems.
+
+Some common issues include:
+- API server not running
+- Incorrect API URL
+- Network connectivity issues
+- Missing dependencies
+
 ## Configuration
 
 LaneSwap can be configured using environment variables or a configuration file:
+
+### Using Environment Variables
 
 ```bash
 # Set the MongoDB connection string
@@ -157,7 +188,9 @@ export LANESWAP_CHECK_INTERVAL="30"
 export LANESWAP_STALE_THRESHOLD="60"
 ```
 
-Or create a `.env` file in your project directory:
+### Using a .env File
+
+Create a `.env` file in your project directory:
 
 ```
 LANESWAP_MONGODB_URI=mongodb://localhost:27017
@@ -166,64 +199,45 @@ LANESWAP_CHECK_INTERVAL=30
 LANESWAP_STALE_THRESHOLD=60
 ```
 
-## Terminal Monitor Features
+## Terminal Monitor
 
-The terminal monitor provides a comprehensive dashboard for monitoring your services:
-
-- **Real-time Updates**: See service status changes as they happen
-- **Color-coded Status**: Quickly identify service health with color indicators
-- **Automatic Refresh**: Configurable refresh interval
-- **Summary Statistics**: Overview of service health status
-- **Detailed Service Information**: View complete service information including latency and last heartbeat
-- **Keyboard Shortcuts**: Easy navigation with keyboard shortcuts
-- **Auto-detection**: Automatically detects if a terminal is available
-- **Headless Mode**: Can run in non-terminal mode for headless environments
-- **Scroll Preservation**: Preserves terminal scroll history for better navigation
-- **Pause/Resume**: Press SPACE to pause/resume auto-refresh for uninterrupted viewing
-- **Stable UI**: Consistent and stable terminal UI that handles window resizing
-- **Priority Sorting**: Services are sorted by status (critical first) and then by name
-- **Adaptive Display**: Automatically adjusts to terminal size and shows the most important services
+The terminal monitor provides a colorful dashboard for monitoring your services in real-time.
 
 ### Starting the Terminal Monitor
 
-You can start the terminal monitor in several ways:
-
 ```bash
-# Using the CLI entry point
+# Basic usage
 laneswap-term --api-url http://localhost:8000
 
-# Using the CLI with custom refresh interval
+# With custom refresh interval (5 seconds)
 laneswap-term --api-url http://localhost:8000 --refresh 5.0
-
-# Run in non-terminal mode (logging only, no UI)
-laneswap-term --api-url http://localhost:8000 --no-terminal
-
-# Force terminal mode even if no terminal is detected
-laneswap-term --api-url http://localhost:8000 --force-terminal
 
 # Start in paused mode (no auto-refresh until you press SPACE)
 laneswap-term --api-url http://localhost:8000 --paused
-
-# From Python code
-from laneswap.terminal import start_monitor
-import asyncio
-
-# Auto-detect terminal availability
-asyncio.run(start_monitor(api_url="http://localhost:8000", refresh_interval=2.0))
-
-# Force non-terminal mode
-asyncio.run(start_monitor(api_url="http://localhost:8000", refresh_interval=2.0, use_terminal=False))
-
-# Start in paused mode
-asyncio.run(start_monitor(api_url="http://localhost:8000", refresh_interval=2.0, start_paused=True))
 ```
 
 ### Terminal Monitor Keyboard Controls
 
-While the terminal monitor is running, you can use these keyboard controls:
-
 - **SPACE**: Pause/resume auto-refresh (useful for scrolling through service data)
 - **CTRL+C**: Exit the monitor
+
+### Example Terminal Monitor Output
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         LaneSwap Monitor                         │
+├─────────────────────────────────────────────────────────────────┤
+│ Services: 5 | Healthy: 3 | Warning: 1 | Error: 1 | Stale: 0     │
+├─────────────────────────────────────────────────────────────────┤
+│ ID                  | Name           | Status  | Last Heartbeat │
+├─────────────────────────────────────────────────────────────────┤
+│ 123abc456def        | API Server     | HEALTHY | 5s ago         │
+│ 789ghi101jkl        | Database       | HEALTHY | 12s ago        │
+│ 202mno303pqr        | Auth Service   | WARNING | 25s ago        │
+│ 404stu505vwx        | Payment System | ERROR   | 1m ago         │
+│ 606yza707bcd        | User Service   | HEALTHY | 8s ago         │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ## Progress Tracking
 
@@ -247,13 +261,16 @@ async def main():
         
         # Update progress as the task progresses
         for i in range(100):
+            # Do some work
+            await asyncio.sleep(0.1)
+            
+            # Update the progress
             await client.update_progress(
                 task_id=task_id,
                 current_step=i+1,
                 status="running",
                 message=f"Processing item {i+1}/100"
             )
-            await asyncio.sleep(0.1)
         
         # Complete the progress task
         await client.complete_progress(
@@ -266,45 +283,47 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-## System Check
+## Command Line Interface
 
-To verify that all components of the LaneSwap system are working correctly, you can run the validation command:
-
-```bash
-# Run validation with default options
-laneswap validate
-
-# Skip web monitor validation
-laneswap validate --no-web-monitor
-
-# Treat warnings as errors
-laneswap validate --strict
-
-# Run validation without printing results
-laneswap validate --quiet
-```
-
-You can also run the validation script directly:
+LaneSwap provides a comprehensive command-line interface for managing and monitoring services:
 
 ```bash
-python -m laneswap.examples.verify_installation
+# Start the server
+laneswap server
+
+# List all registered services
+laneswap services list
+
+# Get details for a specific service
+laneswap services get <service-id>
+
+# Send a heartbeat for a service
+laneswap services heartbeat <service-id> --status healthy
+
+# Start the terminal monitor
+laneswap-term --api-url http://localhost:8000
 ```
 
-The validation checks:
-- All required dependencies are installed
-- Key LaneSwap components can be imported
-- Overall system status
+## System Architecture
 
-If any issues are found, the validator will provide detailed information to help you fix them.
+LaneSwap consists of several main components:
 
-### Automatic Validation
+1. **Core Module**: Contains the central heartbeat management system
+2. **API Server**: FastAPI-based server that receives heartbeats from services
+3. **Client Library**: Clients for sending heartbeats from your services
+4. **Adapters**: Pluggable storage and notification backends
+5. **Terminal Monitor**: Colorful terminal dashboard for monitoring service health
+6. **CLI**: Command-line interface for interacting with the system
+7. **Models**: Data models and schemas
 
-LaneSwap automatically runs validation when:
-1. A service is registered for the first time
-2. The heartbeat system is initialized
-3. The CLI is started
+## Example Applications
 
-This ensures that any potential issues are detected early, before they cause problems in production.
+Check out the example applications in the `laneswap/examples/` directory:
+
+- `simple_service.py`: A basic service that sends heartbeats
+- `weather_app_example.py`: A more complex example of a weather service
+- `sync_client_example.py`: Example using the synchronous client
+- `progress_service.py`: Example of tracking progress for long-running tasks
 
 ## Running Without MongoDB
 
@@ -313,278 +332,13 @@ LaneSwap can run without MongoDB, but heartbeat data will not be persisted betwe
 ```bash
 # Set empty MongoDB URI to disable MongoDB integration
 export LANESWAP_MONGODB_URI=""
-
-# Or in .env file
-# LANESWAP_MONGODB_URI=
 ```
 
-## Example Services
+## Next Steps
 
-LaneSwap includes several example services to help you get started:
-
-```bash
-# Start a simple service that sends heartbeats every 5 seconds
-python -m laneswap.examples.simple_service
-
-# Start a service that reports progress on a long-running task
-python -m laneswap.examples.progress_service
-
-# Test Discord webhook notifications
-python -m laneswap.examples.discord_webhook_example
-
-# Start the terminal monitor with a mock API server for demonstration
-python -m laneswap.examples.mock_api_server  # Start the mock API server
-python -m laneswap.examples.terminal_monitor_example  # Start the terminal monitor
-```
-
-### Mock API Server
-
-For testing and demonstration purposes, LaneSwap includes a mock API server that simulates service data without requiring a full setup:
-
-```bash
-# Start the mock API server
-python -m laneswap.examples.mock_api_server
-
-# Connect the terminal monitor to the mock server
-python -m laneswap.examples.terminal_monitor_example --api-url http://localhost:8000
-
-# Connect in non-terminal mode (for headless environments or CI/CD pipelines)
-python -m laneswap.examples.terminal_monitor_example --api-url http://localhost:8000 --no-terminal
-```
-
-The mock server generates random service data and periodically updates service statuses to demonstrate the terminal monitor's real-time capabilities. The non-terminal mode is useful for automated testing, CI/CD pipelines, or running in headless environments.
-
-## API Reference
-
-### Register a Service
-
-```
-POST /api/services
-```
-
-Request body:
-```json
-{
-  "name": "my-service",
-  "metadata": {
-    "version": "1.0.0",
-    "environment": "production"
-  }
-}
-```
-
-Response:
-```json
-{
-  "service_id": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "my-service",
-  "status": "unknown",
-  "created_at": "2023-09-01T12:00:00Z",
-  "last_heartbeat": null,
-  "metadata": {
-    "version": "1.0.0",
-    "environment": "production"
-  }
-}
-```
-
-### Send a Heartbeat
-
-```
-POST /api/services/{service_id}/heartbeat
-```
-
-Request body:
-```json
-{
-  "status": "healthy",
-  "message": "Service is running normally",
-  "metadata": {
-    "cpu_usage": 25,
-    "memory_usage": 150
-  }
-}
-```
-
-Response:
-```json
-{
-  "service_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "healthy",
-  "timestamp": "2023-09-01T12:01:00Z",
-  "message": "Service is running normally",
-  "metadata": {
-    "cpu_usage": 25,
-    "memory_usage": 150
-  }
-}
-```
-
-### Get All Services
-
-```
-GET /api/services
-```
-
-Response:
-```json
-{
-  "services": [
-    {
-      "service_id": "550e8400-e29b-41d4-a716-446655440000",
-      "name": "my-service",
-      "status": "healthy",
-      "created_at": "2023-09-01T12:00:00Z",
-      "last_heartbeat": "2023-09-01T12:01:00Z",
-      "metadata": {
-        "version": "1.0.0",
-        "environment": "production"
-      }
-    }
-  ]
-}
-```
-
-### Get Service Status
-
-```
-GET /api/services/{service_id}
-```
-
-Response:
-```json
-{
-  "service_id": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "my-service",
-  "status": "healthy",
-  "created_at": "2023-09-01T12:00:00Z",
-  "last_heartbeat": "2023-09-01T12:01:00Z",
-  "message": "Service is running normally",
-  "metadata": {
-    "version": "1.0.0",
-    "environment": "production"
-  }
-}
-```
-
-### Track Progress
-
-```
-POST /api/progress
-```
-
-Request body:
-```json
-{
-  "service_id": "550e8400-e29b-41d4-a716-446655440000",
-  "task_name": "Data Processing",
-  "total_steps": 100,
-  "description": "Processing large dataset"
-}
-```
-
-Response:
-```json
-{
-  "task_id": "550e8400-e29b-41d4-a716-446655440001",
-  "service_id": "550e8400-e29b-41d4-a716-446655440000",
-  "task_name": "Data Processing",
-  "total_steps": 100,
-  "current_step": 0,
-  "status": "pending",
-  "created_at": "2023-09-01T12:00:00Z",
-  "updated_at": "2023-09-01T12:00:00Z",
-  "description": "Processing large dataset"
-}
-```
-
-### Update Progress
-
-```
-PUT /api/progress/{task_id}
-```
-
-Request body:
-```json
-{
-  "current_step": 50,
-  "status": "running",
-  "message": "Processing item 50/100"
-}
-```
-
-Response:
-```json
-{
-  "task_id": "550e8400-e29b-41d4-a716-446655440001",
-  "service_id": "550e8400-e29b-41d4-a716-446655440000",
-  "task_name": "Data Processing",
-  "total_steps": 100,
-  "current_step": 50,
-  "status": "running",
-  "created_at": "2023-09-01T12:00:00Z",
-  "updated_at": "2023-09-01T12:05:00Z",
-  "description": "Processing large dataset",
-  "message": "Processing item 50/100",
-  "percent_complete": 50
-}
-```
-
-## Advanced Usage
-
-### Using the Heartbeat Decorator
-
-You can use the `with_heartbeat` decorator to automatically send heartbeats when a function is called:
-
-```python
-from laneswap.core.heartbeat import with_heartbeat
-from laneswap.core.types import HeartbeatStatus
-
-@with_heartbeat(
-    service_id="my-service",
-    success_status=HeartbeatStatus.HEALTHY,
-    error_status=HeartbeatStatus.ERROR
-)
-async def my_function():
-    # Do something
-    return "Success"
-```
-
-### Using the Heartbeat Context Manager
-
-You can use the `heartbeat_system` context manager to initialize and clean up the heartbeat system:
-
-```python
-from laneswap.core.heartbeat import heartbeat_system
-from laneswap.adapters.mongodb import MongoDBAdapter
-from laneswap.adapters.discord import DiscordWebhookAdapter
-
-async def main():
-    # Create adapters
-    mongodb = MongoDBAdapter("mongodb://localhost:27017")
-    discord = DiscordWebhookAdapter("https://discord.com/api/webhooks/...")
-    
-    # Initialize the heartbeat system
-    async with heartbeat_system(
-        notifiers=[discord],
-        storage=mongodb,
-        check_interval=30,
-        stale_threshold=60
-    ):
-        # The heartbeat system is now running
-        # Register services and send heartbeats
-        pass
-    
-    # The heartbeat system is now stopped
-```
-
-## Integration Testing
-
-For information on running integration tests, see [INTEGRATION_TESTS.md](INTEGRATION_TESTS.md).
-
-## Contributing
-
-For information on contributing to LaneSwap, see [CONTRIBUTING.md](CONTRIBUTING.md).
+1. Try the [example applications](laneswap/examples/) to see LaneSwap in action
+2. Read the [API Documentation](laneswap/docs/API.md) for detailed information
+3. Check out the [Troubleshooting Guide](laneswap/docs/TROUBLESHOOTING.md) if you encounter issues
 
 ## License
 
