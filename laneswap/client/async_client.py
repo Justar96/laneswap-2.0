@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Union
 import aiohttp
 from pydantic import BaseModel
 
-from ..core.exceptions import LaneswapError, ServiceNotFoundError
+from ..core.exceptions import LaneSwapError, ServiceNotFoundError
 from ..core.heartbeat import generate_monitor_url
 from ..models.heartbeat import HeartbeatStatus, ServiceHeartbeat, ServiceRegistration
 

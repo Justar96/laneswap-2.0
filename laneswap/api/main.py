@@ -2,20 +2,23 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-# Load environment variables from .env file
-load_dotenv()
-
 import os
 
-from ..adapters.discord import DiscordWebhookAdapter
-from ..adapters.mongodb import MongoDBAdapter
-from ..core.config import configure, get_settings, setup_logging
-from ..core.heartbeat import HeartbeatManager, get_manager
+# Import the new LaneSwap facade and necessary types/exceptions
+from ..laneswap import LaneSwap
+from ..core.types import HeartbeatStatus # Keep if needed by routes directly
+from ..core.exceptions import ServiceNotFoundError # Keep if handled here
+from ..core.config import get_settings, setup_logging # Keep settings import
 from .routers import health_check, heartbeat, progress
 
 # Configure logging
@@ -25,87 +28,70 @@ logging.basicConfig(
 )
 logger = logging.getLogger("laneswap")
 
-# Get the default heartbeat manager
-manager = get_manager()
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Lifespan context manager for FastAPI application.
-    Handles startup and shutdown events.
+    Handles startup and shutdown events using the LaneSwap facade.
     """
     # Setup logging
     setup_logging()
-
-    # Get the manager
-    logger.debug("Getting heartbeat manager")
-    mgr = get_manager()
-    if mgr is None:
-        logger.error("Failed to get heartbeat manager - creating new instance")
-        from ..core.heartbeat import HeartbeatManager
-        global manager
-        manager = HeartbeatManager()
-    else:
-        logger.debug("Heartbeat manager retrieved successfully")
+    logger.info("API Lifespan starting...")
 
     # Get settings
     settings = get_settings()
 
-    # Configure MongoDB storage if URL is provided
+    # Prepare adapter specifications from settings
+    storage_spec = None
     if settings.mongodb:
-        logger.info("Configuring MongoDB storage")
-        mongodb = MongoDBAdapter(
-            connection_string=settings.mongodb.connection_string,
-            database_name=settings.mongodb.database_name,
-            heartbeats_collection=settings.mongodb.heartbeats_collection,
-            errors_collection=settings.mongodb.errors_collection
-        )
+        storage_spec = settings.mongodb.connection_string # Pass URI directly
+        # Alternatively, construct URI if settings are separate fields:
+        # storage_spec = f"mongodb://{settings.mongodb.host}:{settings.mongodb.port}/{settings.mongodb.database_name}"
 
-        # Initialize MongoDB connection
-        try:
-            await mongodb.initialize()
-            logger.info("MongoDB connection initialized")
-
-            # Add MongoDB adapter to manager
-            manager.add_storage_adapter(mongodb)
-            logger.info("MongoDB adapter added to manager")
-        except Exception as e:
-            logger.error("Failed to initialize MongoDB connection: %s", str(e))
-
-    # Configure Discord webhook if URL is provided
+    notifier_specs = []
     if settings.discord:
-        logger.info("Configuring Discord webhook")
-        discord = DiscordWebhookAdapter(
-            webhook_url=settings.discord.webhook_url,
-            username=settings.discord.username,
-            avatar_url=settings.discord.avatar_url
+        # Assuming webhook_url is the connection string
+        notifier_specs.append(settings.discord.webhook_url)
+        # Add other notifiers if configured...
+
+    # Instantiate the LaneSwap facade
+    try:
+        laneswap_instance = LaneSwap(
+            storage=storage_spec,
+            notifiers=notifier_specs,
+            check_interval=settings.heartbeat.check_interval,
+            stale_threshold=settings.heartbeat.stale_threshold
         )
+        # Store the instance in app state for dependency injection in routes
+        app.state.laneswap = laneswap_instance
+        logger.info("LaneSwap instance created and stored in app state.")
 
-        # Add Discord adapter to manager
-        manager.add_notifier_adapter(discord)
-        logger.info("Discord adapter added to manager")
+        # Start the LaneSwap monitor
+        await laneswap_instance.start()
+        logger.info("LaneSwap monitor started via lifespan.")
 
-    # Start the heartbeat monitor
-    logger.info("Starting heartbeat monitor")
-    await manager.start_monitor(
-        check_interval=settings.heartbeat.check_interval,
-        stale_threshold=settings.heartbeat.stale_threshold
-    )
-    logger.info("Heartbeat monitor started")
+    except Exception as e:
+        logger.critical(f"Failed to initialize LaneSwap in API lifespan: {e}", exc_info=True)
+        # Prevent the app from starting if core system fails
+        app.state.laneswap = None # Ensure state is None if failed
+        # Optionally raise the exception to halt FastAPI startup
+        raise RuntimeError(f"LaneSwap initialization failed: {e}") from e
 
     # Yield control back to FastAPI
     yield
 
-    # Shutdown the heartbeat monitor
-    logger.info("Stopping heartbeat monitor")
-    await manager.stop_monitor()
-    logger.info("Heartbeat monitor stopped")
-
-    # Close MongoDB connection if it was initialized
-    if settings.mongodb and hasattr(mongodb, 'close'):
-        logger.info("Closing MongoDB connection")
-        await mongodb.close()
-        logger.info("MongoDB connection closed")
+    # --- Shutdown Phase ---
+    logger.info("API Lifespan shutting down...")
+    laneswap_instance = getattr(app.state, 'laneswap', None)
+    if laneswap_instance:
+        # Stop the LaneSwap monitor
+        try:
+            await laneswap_instance.stop()
+            logger.info("LaneSwap monitor stopped via lifespan.")
+        except Exception as e:
+             logger.error(f"Error stopping LaneSwap monitor: {e}", exc_info=True)
+    else:
+        logger.warning("No LaneSwap instance found in app state during shutdown.")
 
 def add_error_handlers(app: FastAPI):
     """Add global error handlers to the FastAPI application."""
@@ -124,11 +110,11 @@ def create_app() -> FastAPI:
     # Get settings
     settings = get_settings()
 
-    # Create FastAPI app
+    # Create FastAPI app with the new lifespan
     app = FastAPI(
         title="LaneSwap API",
         description="API for LaneSwap heartbeat monitoring",
-        version="0.1.0",
+        version="0.2.0", # Reflect version bump
         lifespan=lifespan
     )
 
@@ -173,29 +159,11 @@ def get_server_urls(host: str, port: int) -> Dict[str, Dict[str, str]]:
         f"http://{doc_host}:{port}": {
             "api": f"http://{doc_host}:{port}/api",
             "docs": f"http://{doc_host}:{port}/docs",
-            "web_monitor": f"http://{doc_host}:{port}/web-monitor"
         }
     }
 
 # Create the FastAPI app
 app = create_app()
-
-# Programmatic configuration example
-def configure_api(config_dict: Dict[str, Any] = None):
-    """
-    Configure the API with the provided configuration dictionary.
-
-    Args:
-        config_dict: Dictionary containing configuration values
-    """
-    # Configure the application
-    configure(config_dict)
-
-    # Recreate the FastAPI app
-    global app
-    app = create_app()
-
-    return app
 
 if __name__ == "__main__":
     import uvicorn
@@ -215,7 +183,6 @@ if __name__ == "__main__":
         print(f"\nAccess points for {base_url}:")
         print(f"  API Endpoint: {endpoints['api']}")
         print(f"  API Documentation: {endpoints['docs']}")
-        print(f"  Web Monitor: {endpoints['web_monitor']}")
 
     print("\n" + "=" * 50)
 

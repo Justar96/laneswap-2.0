@@ -2,36 +2,36 @@
 Custom exceptions for the LaneSwap system.
 """
 
-class LaneswapError(Exception):
+class LaneSwapError(Exception):
     """Base exception for all LaneSwap errors."""
     pass
 
 
-class ServiceNotFoundError(LaneswapError):
+class ServiceNotFoundError(LaneSwapError):
     """Raised when a service is not found."""
     pass
 
 
-class StorageError(LaneswapError):
+class StorageError(LaneSwapError):
     """Raised when there's an error with storage operations."""
     pass
 
 
-class NotifierError(LaneswapError):
+class NotifierError(LaneSwapError):
     """Raised when there's an error with notification operations."""
     pass
 
 
-class ValidationError(LaneswapError):
+class ValidationError(LaneSwapError):
     """Raised when validation fails."""
     pass
 
 
-class ConfigurationError(LaneswapError):
+class ConfigurationError(LaneSwapError):
     """Raised when there's an error in configuration."""
     pass
 
 
-class ExecutionError(LaneswapError):
+class ExecutionError(LaneSwapError):
     """Raised when there's an error during function execution tracking."""
     pass

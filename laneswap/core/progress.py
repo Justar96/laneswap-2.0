@@ -15,7 +15,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
 
-from .exceptions import LaneswapError
+from .exceptions import LaneSwapError
 from .types import HeartbeatStatus, ProgressStatus
 
 logger = logging.getLogger("laneswap.progress")

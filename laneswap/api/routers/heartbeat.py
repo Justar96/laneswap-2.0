@@ -7,10 +7,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request 
 from pydantic import ValidationError
 
-from ...core.heartbeat import HeartbeatManager, ServiceNotFoundError, get_manager
+from ...laneswap import LaneSwap
+from ...core.exceptions import ServiceNotFoundError, LaneSwapError 
 from ...models.heartbeat import (
     HeartbeatStatus,
     MultiServiceStatus,
@@ -24,16 +25,16 @@ router = APIRouter()
 logger = logging.getLogger("laneswap.api.heartbeat")
 
 
-async def get_heartbeat_manager() -> HeartbeatManager:
-    """Dependency to get the heartbeat manager instance."""
-    manager = get_manager()
-    if manager is None:
-        logger.error("Failed to get heartbeat manager")
+def get_laneswap(request: Request) -> LaneSwap:
+    """Dependency to get the LaneSwap instance from application state."""
+    laneswap_instance = getattr(request.app.state, 'laneswap', None)
+    if laneswap_instance is None:
+        logger.critical("LaneSwap instance not found in application state.")
         raise HTTPException(
             status_code=500,
-            detail="Internal server error: Heartbeat manager not initialized"
+            detail="Internal server error: LaneSwap system not initialized correctly."
         )
-    return manager
+    return laneswap_instance
 
 
 @router.post(
@@ -43,32 +44,36 @@ async def get_heartbeat_manager() -> HeartbeatManager:
 )
 async def register_service(
     service: ServiceRegistration,
-    manager: HeartbeatManager = Depends(get_heartbeat_manager)
+    laneswap: LaneSwap = Depends(get_laneswap) 
 ):
     """Register a new service for heartbeat monitoring."""
     try:
         logger.debug("Registering service: %s", service.model_dump(exclude_none=True))
-        service_id = await manager.register_service(
+        registration_details = await laneswap.register(
             service_name=service.service_name,
             service_id=service.service_id,
             metadata=service.metadata
         )
-        logger.info("Service registered successfully with ID: %s", service_id)
-        return {"service_id": service_id}
+        logger.info("Service registered successfully with ID: %s", registration_details.service_id)
+        return {"service_id": registration_details.service_id}
+    except (ValueError, LaneSwapError) as e: 
+        logger.warning(f"Failed to register service '{service.service_name}': {e}")
+        status_code = 400 if isinstance(e, ValueError) else 500
+        raise HTTPException(status_code=status_code, detail=f"Failed to register service: {e}")
     except Exception as e:
-        logger.error("Error registering service: %s", str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to register service: {str(e)}")
+        logger.error("Unexpected error registering service: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error during registration.")
 
 
 @router.post(
     "/services/{service_id}/heartbeat",
-    response_model=ServiceStatus,
+    response_model=Dict[str, Any],
     summary="Send a heartbeat for a service"
 )
 async def send_heartbeat(
     service_id: str = Path(..., description="Service identifier"),
     heartbeat: ServiceHeartbeat = ServiceHeartbeat(),
-    manager: HeartbeatManager = Depends(get_heartbeat_manager)
+    laneswap: LaneSwap = Depends(get_laneswap) 
 ):
     """
     Send a heartbeat update for a registered service.
@@ -78,29 +83,24 @@ async def send_heartbeat(
         heartbeat: Heartbeat information
 
     Returns:
-        Updated service status
+        Confirmation message or Updated service status
     """
     try:
-        # Send the heartbeat
-        await manager.send_heartbeat(
+        success = await laneswap.send_heartbeat(
             service_id=service_id,
             status=heartbeat.status,
             message=heartbeat.message,
             metadata=heartbeat.metadata
         )
 
-        # Get and return the updated service status
-        service = await manager.get_service(service_id)
+        return {"message": "Heartbeat received successfully", "service_id": service_id, "status": heartbeat.status}
 
-        # Convert datetime fields to ISO format strings
-        if isinstance(service.get("last_heartbeat"), datetime):
-            service["last_heartbeat"] = service["last_heartbeat"].isoformat()
-
-        return service
     except ServiceNotFoundError as e:
+        logger.warning(f"Heartbeat received for unknown service ID '{service_id}': {e}")
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process heartbeat: {str(e)}")
+        logger.error("Error processing heartbeat for service '%s': %s", service_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to process heartbeat: {e}")
 
 
 @router.get(
@@ -110,7 +110,7 @@ async def send_heartbeat(
 )
 async def get_service_status(
     service_id: str = Path(..., description="Service identifier"),
-    manager: HeartbeatManager = Depends(get_heartbeat_manager)
+    laneswap: LaneSwap = Depends(get_laneswap) 
 ):
     """
     Get the current status of a registered service.
@@ -122,58 +122,82 @@ async def get_service_status(
         Service status information
     """
     try:
-        service = await manager.get_service(service_id)
+        service = await laneswap.get_service(service_id)
+        if service is None:
+             raise ServiceNotFoundError(f"Service with ID '{service_id}' not found.")
 
-        # Convert datetime fields to ISO format strings
-        if isinstance(service.get("last_heartbeat"), datetime):
-            service["last_heartbeat"] = service["last_heartbeat"].isoformat()
+        if isinstance(service.get("last_heartbeat_time"), datetime):
+            service["last_heartbeat_time"] = service["last_heartbeat_time"].isoformat()
+        if isinstance(service.get("registration_time"), datetime):
+             service["registration_time"] = service["registration_time"].isoformat()
 
-        return service
+        try:
+            return ServiceStatus(**service)
+        except ValidationError as ve:
+             logger.error(f"Validation error creating ServiceStatus response for {service_id}: {ve}")
+             raise HTTPException(status_code=500, detail="Internal data format error.")
+
     except ServiceNotFoundError as e:
+        logger.info(f"Service status requested for unknown ID '{service_id}")
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get service status: {str(e)}")
+        logger.error("Error getting service status for '%s': %s", service_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get service status: {e}")
 
 
 @router.get(
     "/services",
-    response_model=Dict[str, Any],
+    response_model=MultiServiceStatus, 
     summary="Get all services status"
 )
 async def get_all_services(
-    manager: HeartbeatManager = Depends(get_heartbeat_manager)
+    laneswap: LaneSwap = Depends(get_laneswap) 
 ):
     """
     Get status information for all registered services.
 
     Returns:
-        Dictionary with services data and summary statistics
+        MultiServiceStatus: Object containing services data and summary statistics
     """
     try:
-        services = await manager.get_all_services()
+        services_dict = await laneswap.get_all_services()
 
-        # Convert datetime fields to ISO format strings
-        for service in services.values():
-            if isinstance(service.get("last_heartbeat"), datetime):
-                service["last_heartbeat"] = service["last_heartbeat"].isoformat()
+        service_status_list: List[ServiceStatus] = []
+        status_counts = {status.value: 0 for status in HeartbeatStatus}
+        total_services = 0
 
-        # Count services by status
-        status_counts = {}
-        for status in HeartbeatStatus:
-            status_counts[status.value] = 0
+        for service_id, service_data in services_dict.items():
+            total_services += 1
+            current_status = service_data.get("status", HeartbeatStatus.UNKNOWN)
+            if isinstance(current_status, HeartbeatStatus):
+                 status_value = current_status.value
+            else: 
+                 try:
+                     status_value = HeartbeatStatus(current_status).value
+                 except ValueError:
+                     status_value = HeartbeatStatus.UNKNOWN.value
+                     logger.warning(f"Service {service_id} has invalid status '{current_status}', treating as UNKNOWN.")
+            status_counts[status_value] = status_counts.get(status_value, 0) + 1
 
-        for service in services.values():
-            status = service.get("status", HeartbeatStatus.UNKNOWN)
-            if isinstance(status, HeartbeatStatus):
-                status = status.value
-            status_counts[status] = status_counts.get(status, 0) + 1
+            if isinstance(service_data.get("last_heartbeat_time"), datetime):
+                service_data["last_heartbeat_time"] = service_data["last_heartbeat_time"].isoformat()
+            if isinstance(service_data.get("registration_time"), datetime):
+                service_data["registration_time"] = service_data["registration_time"].isoformat()
 
-        return {
-            "services": services,
-            "summary": {
-                "total": len(services),
+            try:
+                service_status_list.append(ServiceStatus(**service_data))
+            except ValidationError as ve:
+                logger.error(f"Validation error creating ServiceStatus for service {service_id} in get_all_services: {ve}")
+                continue
+
+        return MultiServiceStatus(
+            services=service_status_list,
+            summary={
+                "total": total_services,
                 "status_counts": status_counts
             }
-        }
+        )
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get services: {str(e)}")
+        logger.error("Error getting all services: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get services: {e}")

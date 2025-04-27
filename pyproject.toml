@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "laneswap"
-version = "0.1.2"
+version = "2.0.0"
 description = "A heartbeat monitoring system for distributed services"
 readme = "README.md"
 authors = [
@@ -32,6 +32,7 @@ dependencies = [
     "aiohttp>=3.8.0",
     "tabulate>=0.9.0",
     "python-dateutil>=2.8.2",
+    "keyboard>=0.13.5",
 ]
 
 [project.optional-dependencies]
@@ -49,8 +50,7 @@ Documentation = "https://github.com/laneswap/laneswap#readme"
 Issues = "https://github.com/laneswap/laneswap/issues"
 
 [project.scripts]
-laneswap = "laneswap.cli.commands:main"
-laneswap-web = "laneswap.examples.web_monitor.launch:main"
+laneswap = "laneswap.cli.terminal_monitor:main"
 
 [tool.black]
 line-length = 88
